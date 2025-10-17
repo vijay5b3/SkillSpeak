@@ -495,7 +495,7 @@ example()
         
         // Disable send button temporarily
         SendButton.IsEnabled = false;
-        SendButton.Content = "Sending...";
+        SendButton.Content = "⏳ Sending...";
         
         try
         {
@@ -512,6 +512,10 @@ example()
                 ChatScrollViewer.ScrollToEnd();
             });
             
+            // Log the request for debugging
+            System.Diagnostics.Debug.WriteLine($"[SEND] Sending message to: {_chatApiUrl}");
+            System.Diagnostics.Debug.WriteLine($"[SEND] Message: {message}");
+            
             // Send to API
             var requestBody = new
             {
@@ -519,12 +523,19 @@ example()
             };
             
             string jsonBody = JsonSerializer.Serialize(requestBody);
-            var content = new StringContent(jsonBody, Encoding.UTF8, "application/json");
+            System.Diagnostics.Debug.WriteLine($"[SEND] Request body length: {jsonBody.Length} chars");
             
+            var content = new StringContent(jsonBody, Encoding.UTF8, "application/json");
+            content.Headers.Add("X-Source", "windows-app");
+            
+            System.Diagnostics.Debug.WriteLine($"[SEND] Posting to API...");
             var response = await _httpClient.PostAsync(_chatApiUrl, content);
+            System.Diagnostics.Debug.WriteLine($"[SEND] Response status: {response.StatusCode}");
+            
             response.EnsureSuccessStatusCode();
             
             string responseText = await response.Content.ReadAsStringAsync();
+            System.Diagnostics.Debug.WriteLine($"[SEND] Response length: {responseText.Length} chars");
             
             // Parse response
             using (JsonDocument doc = JsonDocument.Parse(responseText))
@@ -538,6 +549,7 @@ example()
                         if (messageObj.TryGetProperty("content", out var contentElement))
                         {
                             string assistantResponse = contentElement.GetString() ?? "";
+                            System.Diagnostics.Debug.WriteLine($"[SEND] Got assistant response: {assistantResponse.Substring(0, Math.Min(50, assistantResponse.Length))}...");
                             
                             // Add to conversation
                             _conversation.Add(new { role = "assistant", content = assistantResponse });
@@ -552,12 +564,55 @@ example()
                                 ChatScrollViewer.ScrollToEnd();
                             });
                         }
+                        else
+                        {
+                            System.Diagnostics.Debug.WriteLine("[SEND] ERROR: No content in message");
+                        }
                     }
+                    else
+                    {
+                        System.Diagnostics.Debug.WriteLine("[SEND] ERROR: No message in choice");
+                    }
+                }
+                else
+                {
+                    System.Diagnostics.Debug.WriteLine("[SEND] ERROR: No choices in response");
                 }
             }
         }
+        catch (HttpRequestException httpEx)
+        {
+            System.Diagnostics.Debug.WriteLine($"[SEND] HTTP ERROR: {httpEx.Message}");
+            Dispatcher.Invoke(() =>
+            {
+                _chatMessages.AppendLine($"[❌ Network Error]");
+                _chatMessages.AppendLine($"Could not connect to server. Please check:");
+                _chatMessages.AppendLine($"1. Server is running");
+                _chatMessages.AppendLine($"2. Internet connection is active");
+                _chatMessages.AppendLine($"3. Firewall is not blocking the app");
+                _chatMessages.AppendLine($"\nError: {httpEx.Message}");
+                _chatMessages.AppendLine();
+                ChatTextBlock.Text = _chatMessages.ToString();
+                ChatScrollViewer.ScrollToEnd();
+            });
+        }
+        catch (JsonException jsonEx)
+        {
+            System.Diagnostics.Debug.WriteLine($"[SEND] JSON ERROR: {jsonEx.Message}");
+            Dispatcher.Invoke(() =>
+            {
+                _chatMessages.AppendLine($"[❌ Response Error]");
+                _chatMessages.AppendLine($"Server returned invalid response.");
+                _chatMessages.AppendLine($"\nError: {jsonEx.Message}");
+                _chatMessages.AppendLine();
+                ChatTextBlock.Text = _chatMessages.ToString();
+                ChatScrollViewer.ScrollToEnd();
+            });
+        }
         catch (Exception ex)
         {
+            System.Diagnostics.Debug.WriteLine($"[SEND] ERROR: {ex.GetType().Name} - {ex.Message}");
+            System.Diagnostics.Debug.WriteLine($"[SEND] Stack: {ex.StackTrace}");
             Dispatcher.Invoke(() =>
             {
                 _chatMessages.AppendLine($"[❌ Error]");
@@ -573,7 +628,7 @@ example()
             Dispatcher.Invoke(() =>
             {
                 SendButton.IsEnabled = true;
-                SendButton.Content = "Send";
+                SendButton.Content = "📤 Send";
             });
         }
     }
