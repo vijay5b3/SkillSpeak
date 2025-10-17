@@ -149,6 +149,7 @@ function escapeHtml(s) {
 
 // Track messages added directly via API to prevent SSE duplication
 let lastDirectApiMessage = null;
+let currentStreamingMessage = null; // Track currently streaming message
 
 async function send() {
   const text = promptEl.value.trim();
@@ -160,6 +161,11 @@ async function send() {
   render();
   sendBtn.disabled = true;
 
+  // Create placeholder for streaming assistant response
+  currentStreamingMessage = { role: 'assistant', content: '' };
+  conversation.push(currentStreamingMessage);
+  render();
+
   try {
     // Send entire conversation history (including system prompt) to API
     const res = await fetch('/api/chat', {
@@ -168,7 +174,7 @@ async function send() {
         'Content-Type': 'application/json',
         'X-Source': 'web-ui'
       },
-      body: JSON.stringify({ messages: conversation })
+      body: JSON.stringify({ messages: conversation.slice(0, -1) }) // Exclude placeholder
     });
     
     if (!res.ok) {
@@ -188,11 +194,19 @@ async function send() {
       assistantText = "The assistant did not return a response. Please try again.";
     }
 
-    // Add assistant response to conversation
-    conversation.push({ role: 'assistant', content: assistantText });
-    render();
+    // Update the streaming placeholder with final content
+    if (currentStreamingMessage) {
+      currentStreamingMessage.content = assistantText;
+      currentStreamingMessage = null;
+      render();
+    }
   } catch (err) {
     console.error('Send error:', err);
+    // Remove placeholder and add error
+    if (currentStreamingMessage) {
+      conversation.pop();
+      currentStreamingMessage = null;
+    }
     conversation.push({ 
       role: 'assistant', 
       content: 'Error: ' + (err.message || 'Failed to get response') 
@@ -226,40 +240,37 @@ promptEl.addEventListener('keydown', (e) => {
 
 render();
 
-// DISABLED: SSE listening for web UI
-// The web UI gets responses directly from API calls
-// Only the Windows app (SRMV) should listen to SSE broadcasts
-// This prevents duplicate messages in the web interface
-
-/*
-// Listen for server-sent events - DISABLED FOR WEB UI
+// **ENABLED**: SSE listening for real-time streaming updates
+// Listen for server-sent events to get streaming chunks
 if (typeof EventSource !== 'undefined') {
   const es = new EventSource('/events');
+  
   es.addEventListener('message', (ev) => {
     try {
       const obj = JSON.parse(ev.data);
       if (obj && obj.role && obj.content) {
-        // Skip if this message was just added via direct API call
-        if (lastDirectApiMessage === obj.content) {
-          console.log('Skipping SSE duplicate of direct API response');
-          return;
+        // Handle streaming chunks
+        if (obj.type === 'chunk' && obj.isStreaming && currentStreamingMessage) {
+          // Append chunk to current streaming message
+          currentStreamingMessage.content += obj.content;
+          render(); // Update display in real-time
         }
-        
-        // Strong deduplication: check if ANY message in conversation has the same content and role
-        const isDuplicate = conversation.some(msg => 
-          msg.role === obj.role && msg.content === obj.content
-        );
-        if (!isDuplicate) {
-          conversation.push({ role: obj.role, content: obj.content });
-          render();
+        // Handle complete message
+        else if (obj.type === 'complete' && !obj.isStreaming) {
+          // Final message received - already handled by send() function
+          console.log('Streaming complete');
+        }
+        // Handle user message echo (for Windows app sync)
+        else if (obj.role === 'user' && !currentStreamingMessage) {
+          // Skip user messages from other clients (already added locally)
         }
       }
     } catch (e) {
       console.warn('Failed to parse SSE message', e);
     }
   });
+  
   es.addEventListener('error', (e) => {
-    // noop - connection might retry automatically
+    console.warn('SSE connection error, will retry automatically');
   });
 }
-*/

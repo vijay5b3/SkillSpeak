@@ -121,236 +121,107 @@ app.post('/api/chat', async (req, res) => {
 
     // Use the client's messages as the outgoing conversation start (do not inject server-side system prompts)
     const outgoingBase = clientMessages;
-    const outgoingMessages = outgoingBase;
 
-    let resp = await axios.post(
+    // **STREAMING ENABLED**: Use responseType: 'stream' to get real-time chunks
+    const resp = await axios.post(
       `${OPENROUTER_BASE_URL}/chat/completions`,
       {
         model: OPENROUTER_MODEL,
         messages: outgoingBase,
         max_tokens: wantsCode ? Math.min(MAX_TOKENS * 6, 2048) : MAX_TOKENS,
-        temperature: TEMPERATURE
+        temperature: TEMPERATURE,
+        stream: true  // Enable streaming from OpenRouter
       },
       {
         headers: {
           'Authorization': `Bearer ${OPENROUTER_API_KEY}`,
           'Content-Type': 'application/json'
         },
-        timeout: 120000
+        timeout: 120000,
+        responseType: 'stream'  // Receive response as a stream
       }
     );
 
-    // If the assistant returned a partial/truncated response (finish_reason === 'length'), attempt a continuation retry
-    try {
-  const assistantMsg = resp.data && resp.data.choices && resp.data.choices[0] && resp.data.choices[0].message && resp.data.choices[0].message.content;
-      const finishReason = resp.data && resp.data.choices && resp.data.choices[0] && resp.data.choices[0].finish_reason;
-      if (finishReason === 'length') {
-        const fs = require('fs');
-        const debugPath = path.join(__dirname, 'openrouter_debug.json');
-        fs.writeFileSync(debugPath, JSON.stringify({ stage: 'initial_length', request: outgoingMessages, response: resp.data }, null, 2));
-        console.warn('Initial response truncated; attempting continuation retry. Wrote debug response to', debugPath);
+    // Broadcast user message first
+    const lastUser = userMessages.length ? userMessages[userMessages.length - 1] : null;
+    if (lastUser) {
+      broadcastEvent({ role: 'user', type: 'user', content: lastUser.content });
+    }
 
-        // Prepare retry messages: include the partial assistant content so the model continues. Use client's original messages as the base.
-        const partialAssistant = assistantMsg || '';
-        const retryMax = Math.min(MAX_TOKENS * 3, 1024);
-        const retryMessages = Array.isArray(outgoingBase) ? outgoingBase.slice() : [];
-        if (partialAssistant) {
-          retryMessages.push({ role: 'assistant', content: partialAssistant });
-        }
-        retryMessages.push({ role: 'user', content: 'Continue the previous assistant response concisely in the same format, starting where it left off. Do not repeat content already provided.' });
-
-        try {
-          const retryResp = await axios.post(
-            `${OPENROUTER_BASE_URL}/chat/completions`,
-            {
-              model: OPENROUTER_MODEL,
-              messages: retryMessages,
-              max_tokens: retryMax,
-              temperature: TEMPERATURE
-            },
-            {
-              headers: {
-                'Authorization': `Bearer ${OPENROUTER_API_KEY}`,
-                'Content-Type': 'application/json'
-              },
-              timeout: 120000
+    // Stream the response chunks in real-time
+    let fullResponse = '';
+    let buffer = '';
+    
+    resp.data.on('data', (chunk) => {
+      const chunkStr = chunk.toString('utf8');
+      buffer += chunkStr;
+      
+      // Process complete SSE messages (data: {...}\n\n)
+      const lines = buffer.split('\n');
+      buffer = lines.pop() || ''; // Keep incomplete line in buffer
+      
+      for (const line of lines) {
+        if (line.startsWith('data: ')) {
+          const jsonStr = line.substring(6).trim();
+          
+          // Skip [DONE] marker
+          if (jsonStr === '[DONE]') continue;
+          
+          try {
+            const parsed = JSON.parse(jsonStr);
+            const delta = parsed?.choices?.[0]?.delta?.content;
+            
+            if (delta) {
+              fullResponse += delta;
+              
+              // Broadcast each chunk immediately to SSE clients (Windows app)
+              broadcastEvent({ 
+                role: 'assistant', 
+                type: 'chunk',  // Mark as streaming chunk
+                content: delta,
+                isStreaming: true
+              });
             }
-          );
-
-          const retryMsg = retryResp.data && retryResp.data.choices && retryResp.data.choices[0] && retryResp.data.choices[0].message && retryResp.data.choices[0].message.content;
-          if (retryMsg && !/^\s*$/.test(retryMsg)) {
-            // Merge partial assistant content and continuation so final output is seamless
-            const original = partialAssistant || '';
-            const combined = (original + '\n' + retryMsg).trim();
-            // Use retryResp as base but replace the assistant content with the merged text
-            retryResp.data.choices[0].message.content = combined;
-            fs.writeFileSync(debugPath, JSON.stringify({ stage: 'continued', request: retryMessages, response: retryResp.data }, null, 2));
-            resp = retryResp;
-          } else {
-            fs.writeFileSync(debugPath, JSON.stringify({ stage: 'continued_empty', request: retryMessages, response: retryResp.data }, null, 2));
-          }
-        } catch (retryErr) {
-          console.warn('Continuation retry failed', retryErr && retryErr.message);
-        }
-      }
-
-      // Existing empty-response handling: if the assistant returned an empty or control-token response, attempt one retry and then a fallback
-      const assistantMsg2 = resp.data && resp.data.choices && resp.data.choices[0] && resp.data.choices[0].message && resp.data.choices[0].message.content;
-      const looksEmpty = !assistantMsg2 || /^\s*$/.test(assistantMsg2) || /^<.*>$/.test(assistantMsg2);
-      if (looksEmpty) {
-        const fs = require('fs');
-        const debugPath = path.join(__dirname, 'openrouter_debug.json');
-        fs.writeFileSync(debugPath, JSON.stringify({ stage: 'initial', request: outgoingMessages, response: resp.data }, null, 2));
-        console.warn('Wrote debug response to', debugPath);
-
-        // Attempt one retry with a short, explicit user instruction to answer concisely. Use client messages as base.
-        try {
-          const lastUser = userMessages.length ? (userMessages[userMessages.length - 1].content || '') : '';
-          const retryUser = { role: 'user', content: `Retry: Please answer concisely in the requested format for: ${lastUser || '[user input]'} If this is a greeting, reply: 'Please ask a technical topic.'` };
-          const retryResp = await axios.post(
-            `${OPENROUTER_BASE_URL}/chat/completions`,
-            {
-              model: OPENROUTER_MODEL,
-              messages: Array.isArray(outgoingBase) ? [...outgoingBase, retryUser] : [retryUser],
-              max_tokens: MAX_TOKENS,
-              temperature: TEMPERATURE
-            },
-            {
-              headers: {
-                'Authorization': `Bearer ${OPENROUTER_API_KEY}`,
-                'Content-Type': 'application/json'
-              },
-              timeout: 120000
-            }
-          );
-
-          const retryMsg2 = retryResp.data && retryResp.data.choices && retryResp.data.choices[0] && retryResp.data.choices[0].message && retryResp.data.choices[0].message.content;
-          if (retryMsg2 && !/^\s*$/.test(retryMsg2)) {
-            // use retry response
-            fs.writeFileSync(debugPath, JSON.stringify({ stage: 'retry', request: [systemMessage, retryUser], response: retryResp.data }, null, 2));
-            resp = retryResp;
-          } else {
-            // fallback: craft a helpful message
-            const fallback = lastUser && lastUser.toLowerCase().trim() === 'hi' ? 'Please ask a technical topic (e.g., "Binary Search").' : 'The assistant did not return an answer. Please rephrase your question.';
-            const fallbackData = {
-              id: resp.data && resp.data.id ? resp.data.id : 'local-fallback',
-              object: 'chat.completion',
-              created: Math.floor(Date.now() / 1000),
-              model: OPENROUTER_MODEL,
-              choices: [{ index: 0, message: { role: 'assistant', content: fallback } }]
-            };
-            fs.writeFileSync(debugPath, JSON.stringify({ stage: 'fallback', request: [systemMessage, retryUser], response: fallbackData }, null, 2));
-            return res.json(fallbackData);
-          }
-        } catch (retryErr) {
-          console.warn('Retry failed', retryErr && retryErr.message);
-        }
-      }
-    } catch (e) {
-      console.warn('Debug logging failed', e && e.message);
-    }
-
-    // If this was a code request, ensure the reply contains a code block. If not, retry once with a forced instruction.
-    try {
-      if (wantsCode) {
-        const text = resp.data && resp.data.choices && resp.data.choices[0] && resp.data.choices[0].message && resp.data.choices[0].message.content;
-        const hasBlock = typeof text === 'string' && /```\w+[\s\S]*```/.test(text);
-        if (!hasBlock) {
-          const fs = require('fs');
-          const debugPath = path.join(__dirname, 'openrouter_debug.json');
-          fs.writeFileSync(debugPath, JSON.stringify({ stage: 'no_code_block', request: outgoingBase, response: resp.data }, null, 2));
-          // Retry with explicit user-level code-only instruction (avoid server system prompts)
-          const forceUser = { role: 'user', content: 'OUTPUT ONLY the complete source code inside a triple-backtick with language. Do not add explanation.' };
-          const forceResp = await axios.post(
-            `${OPENROUTER_BASE_URL}/chat/completions`,
-            {
-              model: OPENROUTER_MODEL,
-              messages: Array.isArray(outgoingBase) ? [...outgoingBase, forceUser] : [forceUser],
-              max_tokens: Math.min(MAX_TOKENS * 8, 3072),
-              temperature: TEMPERATURE
-            },
-            {
-              headers: {
-                'Authorization': `Bearer ${OPENROUTER_API_KEY}`,
-                'Content-Type': 'application/json'
-              },
-              timeout: 120000
-            }
-          );
-          const forcedText = forceResp.data && forceResp.data.choices && forceResp.data.choices[0] && forceResp.data.choices[0].message && forceResp.data.choices[0].message.content;
-          if (forcedText && /```\w+[\s\S]*```/.test(forcedText)) {
-            resp = forceResp;
-            fs.writeFileSync(debugPath, JSON.stringify({ stage: 'forced_code', request: [codeInstructionMessage, ...userMessages, forceUser], response: forceResp.data }, null, 2));
+          } catch (e) {
+            console.warn('Failed to parse streaming chunk:', e.message);
           }
         }
       }
-    } catch (e) {
-      console.warn('Code-block enforcement retry failed', e && e.message);
+    });
+
+    // Wait for stream to complete
+    await new Promise((resolve, reject) => {
+      resp.data.on('end', resolve);
+      resp.data.on('error', reject);
+    });
+
+    // Broadcast final complete message
+    if (fullResponse) {
+      broadcastEvent({ 
+        role: 'assistant', 
+        type: 'complete',  // Mark as final complete message
+        content: fullResponse,
+        isStreaming: false
+      });
     }
 
-    // Post-process: if this was a code request, extract only the first ```lang\n...``` block and replace the assistant content with that block
-    try {
-      if (wantsCode) {
-        const msg = resp.data && resp.data.choices && resp.data.choices[0] && resp.data.choices[0].message;
-        if (msg && typeof msg.content === 'string') {
-          const codeBlockRe = /```(\w+)?\n([\s\S]*?)```/;
-          const m = msg.content.match(codeBlockRe);
-          if (m) {
-            // include triple backticks and language tag
-            const fullBlock = m[0];
-            resp.data.choices[0].message.content = fullBlock;
-          } else {
-            // as a fallback, if text contains multiple lines and looks like code, return it inside a python code block
-            const maybeCode = msg.content.split('\n').slice(0, 500).join('\n');
-            if (/\n\s*\w+\(|def\s+\w+\(|class\s+\w+/.test(maybeCode)) {
-              resp.data.choices[0].message.content = '```python\n' + maybeCode + '\n```';
-            }
-          }
-        }
-      }
-    } catch (e) {
-      console.warn('Post-process code extraction failed', e && e.message);
-    }
+    // Return standard chat completion format for compatibility
+    const responseData = {
+      id: 'stream-' + Date.now(),
+      object: 'chat.completion',
+      created: Math.floor(Date.now() / 1000),
+      model: OPENROUTER_MODEL,
+      choices: [{
+        index: 0,
+        message: {
+          role: 'assistant',
+          content: fullResponse
+        },
+        finish_reason: 'stop'
+      }]
+    };
 
-    // Sanitize assistant output: remove control tokens like <s> and [/s], and clean common stray markers
-    try {
-      if (resp && resp.data && Array.isArray(resp.data.choices)) {
-        resp.data.choices.forEach((c) => {
-          if (c && c.message && typeof c.message.content === 'string') {
-            let text = c.message.content;
-            // Remove common control tokens and markers often returned by providers
-            text = text.replace(/<\/?s>/gi, '');
-            text = text.replace(/\[\/?s\]/gi, '');
-            // Remove stray start/end markers like [/s] or [/] that remain
-            text = text.replace(/\[\/.*?\]/g, '');
-            // Trim excessive whitespace
-            text = text.replace(/\r/g, '').replace(/\t/g, ' ').replace(/ +/g, ' ').trim();
-            c.message.content = text;
-          }
-        });
-      }
-    } catch (e) {
-      console.warn('Sanitization failed', e && e.message);
-    }
-
-    // Broadcast to SSE clients (Windows app, etc.)
-    try {
-      const lastUser = userMessages.length ? userMessages[userMessages.length - 1] : null;
-      // Only broadcast the final assistant message (first choice)
-      const finalAssistantMsg = resp && resp.data && Array.isArray(resp.data.choices) && resp.data.choices[0] && resp.data.choices[0].message;
-      if (finalAssistantMsg && typeof finalAssistantMsg.content === 'string' && finalAssistantMsg.content.trim()) {
-        // Broadcast user message first (if present)
-        if (lastUser) {
-          broadcastEvent({ role: 'user', type: 'user', content: lastUser.content });
-        }
-        // Then broadcast the single final assistant response
-        broadcastEvent({ role: 'assistant', type: 'assistant', content: finalAssistantMsg.content });
-      }
-    } catch (e) {
-      // non-fatal
-    }
-
-    return res.json(resp.data);
+    return res.json(responseData);
   } catch (err) {
     console.error('OpenRouter error:', err && err.response ? err.response.data : err.message);
     const status = err.response ? err.response.status : 500;
