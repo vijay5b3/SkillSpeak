@@ -19,8 +19,8 @@ public partial class MainWindow : Window
     private CancellationTokenSource _cancellationTokenSource;
     private StringBuilder _chatMessages = new StringBuilder();
     private bool _isConnected = false;
-    private readonly string _serverUrl = "https://chat-bot-six-beta.vercel.app/events";
-    private readonly string _chatApiUrl = "https://chat-bot-six-beta.vercel.app/api/chat";
+    private readonly string _serverUrl = "https://chat-bot-final-b1uz.vercel.app/events";
+    private readonly string _chatApiUrl = "https://chat-bot-final-b1uz.vercel.app/api/chat";
     private List<object> _conversation = new List<object>();
     private StringBuilder _currentStreamingMessage = null; // Track streaming message
     private string _currentStreamingSender = "";  // Track who is streaming
