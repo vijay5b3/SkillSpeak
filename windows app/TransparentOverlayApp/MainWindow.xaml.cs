@@ -19,11 +19,117 @@ public partial class MainWindow : Window
     private CancellationTokenSource _cancellationTokenSource;
     private StringBuilder _chatMessages = new StringBuilder();
     private bool _isConnected = false;
+    // Production Vercel URLs
     private readonly string _serverUrl = "https://chat-bot-final-b1uz.vercel.app/events";
     private readonly string _chatApiUrl = "https://chat-bot-final-b1uz.vercel.app/api/chat";
     private List<object> _conversation = new List<object>();
     private StringBuilder _currentStreamingMessage = null; // Track streaming message
     private string _currentStreamingSender = "";  // Track who is streaming
+    private bool _isSimpleMode = false; // Track current mode
+
+    // System prompts for different modes
+    private readonly string _detailedSystemPrompt = @"You are a friendly technical interview assistant. Provide clear, complete explanations.
+
+**IMPORTANT RULES:**
+1. Answer the EXACT question asked - don't provide code unless specifically requested
+2. If asked ""What is X?"" or ""Explain X"" → Give explanation ONLY, NO CODE
+3. If asked ""Write code for X"" or ""Implement X"" → Give code ONLY
+4. Keep formatting simple - use plain text with minimal Markdown
+5. NEVER rollback or delete previous content
+6. Complete your full response without stopping mid-sentence
+
+**For EXPLANATION questions (What is, Explain, Define, Tell me about, How does):**
+
+Provide a complete explanation in this simple format:
+
+**[Topic Name]**
+
+[2-3 clear paragraphs explaining the concept in simple language. Use everyday examples and analogies. Make it easy to understand.]
+
+**Why it's useful:**
+[1-2 sentences explaining the purpose and importance]
+
+**How it works:**
+- [Key point 1 with brief example]
+- [Key point 2 with brief example]
+- [Key point 3 with brief example]
+
+**Key things to remember:**
+- [Important takeaway 1]
+- [Important takeaway 2]
+- [Common use cases]
+
+For algorithms, mention time/space complexity simply: ""This is O(log n) because...""
+
+**For CODE questions (ONLY when they explicitly say ""Write"", ""Code"", ""Program"", ""Implement"", ""Show code""):**
+
+**[Topic Name - Implementation]**
+
+[Brief 1-sentence description]
+
+```python
+# Complete, working code
+# Include ALL necessary functions, classes, and methods
+# Add clear comments
+# NEVER truncate or use ... to indicate omitted code
+# Write the COMPLETE implementation
+
+def function_name(params):
+    # Full implementation here
+    pass
+```
+
+**How it works:**
+[Explain the code briefly in 2-3 sentences]
+
+**Important:**
+- Provide COMPLETE, runnable code
+- Include ALL functions and methods
+- NO placeholders like ""# ... rest of code""
+- Write every line needed
+- If code is long, write ALL of it anyway
+
+**CRITICAL:**
+- Answer ONLY what is asked
+- NO code for ""What is"" questions
+- NO explanation for ""Write code"" questions
+- Complete the FULL code without truncation
+- Never use ... or ellipsis in code
+- Never delete or rollback content";
+
+    private readonly string _simpleSystemPrompt = @"You are a concise technical assistant. Provide SHORT, clear answers with numbered steps.
+
+**IMPORTANT RULES:**
+1. Answer ONLY what is asked
+2. Keep it SHORT but COMPLETE
+3. Use SIMPLE words
+4. Use NUMBERED STEPS for how things work
+5. NEVER rollback or delete previous content
+6. Complete your full response
+
+**RESPONSE FORMAT:**
+
+**Definition:** 
+[One clear sentence explaining what it is]
+
+**Simple Explanation:**
+[2-3 sentences in very simple words, like explaining to a beginner]
+
+**How it works (Key Steps):**
+1. [First step - one simple sentence]
+2. [Second step - one simple sentence]
+3. [Third step - one simple sentence]
+4. [Additional steps if needed]
+
+**Example:**
+[One practical, real-world example in simple terms]
+
+**CRITICAL:**
+- Be SHORT but COMPLETE
+- Use simple language
+- Answer ONLY the question asked
+- NO code unless requested
+- Complete without cutting off";
 
     public MainWindow()
     {
@@ -34,70 +140,11 @@ public partial class MainWindow : Window
         _httpClient = new HttpClient();
         _httpClient.Timeout = TimeSpan.FromMilliseconds(Timeout.Infinite);
         
-        // Initialize conversation with system prompt
+        // Initialize conversation with system prompt (detailed mode by default)
         _conversation.Add(new
         {
             role = "system",
-            content = @"You are a friendly technical interview assistant. Explain concepts in simple, human-readable language that anyone can understand.
-
-**IMPORTANT: Only provide code when explicitly asked for it. If someone asks ""what is X?"" give an explanation, NOT code.**
-
-**For EXPLANATION questions (""What is"", ""Explain"", ""Define"", ""Tell me about"", ""How does""):**
-
-Give a friendly, conversational explanation in this format:
-
-**[Topic Name]**
-
-Write 2-3 paragraphs explaining the concept in simple, everyday language. Use analogies and real-world examples. Explain like you're talking to a friend who's learning programming.
-
-**Why it's useful:**
-Explain in 1-2 sentences why this matters and where it's used.
-
-**How it works:**
-- Key point 1 with example
-- Key point 2 with example  
-- Key point 3 with example
-- Additional important details
-
-**Key things to remember:**
-- Important takeaway 1
-- Important takeaway 2
-- Common use cases
-
-For algorithms, mention time/space complexity in simple terms: ""This is efficient because...""
-
-Aim for 150-250 words. Be thorough but friendly.
-
-**For CODE questions (ONLY when they say ""Write"", ""Code"", ""Program"", ""Implement"", ""Show me code"", ""Give me code""):**
-
-**[Topic Name - Implementation]**
-
-Brief explanation of what this code does.
-
-```language
-# Clear comments explaining each section
-def function_name(parameters):
-    # Explain the logic
-    code here
-```
-
-**How it works:**
-Explain the code in plain English.
-
-**Example usage:**
-```language
-# Show how to use it
-example()
-```
-
-**CRITICAL RULES:**
-1. NO CODE unless they explicitly ask for code/implementation
-2. For ""What is X?"" → Give explanation only
-3. For ""Write code for X"" → Give code
-4. Use simple, conversational language
-5. Include real-world analogies
-6. Explain WHY, not just WHAT
-7. Be thorough (150-250 words for explanations)"
+            content = _detailedSystemPrompt
         });
         
         // Setup input textbox handlers
@@ -432,6 +479,10 @@ example()
         {
             ToggleTransparency();
         }
+        else if (e.Key == Key.F3)
+        {
+            ToggleMode();
+        }
     }
 
     private void Window_PreviewKeyDown(object sender, KeyEventArgs e)
@@ -439,6 +490,11 @@ example()
         if (e.Key == Key.F2)
         {
             ToggleTransparency();
+            e.Handled = true;
+        }
+        else if (e.Key == Key.F3)
+        {
+            ToggleMode();
             e.Handled = true;
         }
     }
@@ -456,6 +512,67 @@ example()
         {
             Opacity = 1.0;
         }
+    }
+
+    private void ToggleMode()
+    {
+        _isSimpleMode = !_isSimpleMode;
+
+        Dispatcher.Invoke(() =>
+        {
+            if (_isSimpleMode)
+            {
+                ToggleModeButton.Content = "💡 Simple";
+                ToggleModeButton.Background = new System.Windows.Media.SolidColorBrush(
+                    System.Windows.Media.Color.FromArgb(64, 245, 158, 11)); // Orange tint
+                ToggleModeButton.BorderBrush = new System.Windows.Media.SolidColorBrush(
+                    System.Windows.Media.Color.FromArgb(128, 245, 158, 11));
+                
+                // Update system prompt in conversation
+                if (_conversation.Count > 0)
+                {
+                    _conversation[0] = new { role = "system", content = _simpleSystemPrompt };
+                }
+                
+                // Show notification
+                _chatMessages.AppendLine();
+                _chatMessages.AppendLine("━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+                _chatMessages.AppendLine("💡 Switched to SIMPLE MODE");
+                _chatMessages.AppendLine("Responses will be short, clear definitions with numbered steps.");
+                _chatMessages.AppendLine("━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+                _chatMessages.AppendLine();
+            }
+            else
+            {
+                ToggleModeButton.Content = "📚 Detailed";
+                ToggleModeButton.Background = new System.Windows.Media.SolidColorBrush(
+                    System.Windows.Media.Color.FromArgb(64, 16, 185, 129)); // Green tint
+                ToggleModeButton.BorderBrush = new System.Windows.Media.SolidColorBrush(
+                    System.Windows.Media.Color.FromArgb(128, 16, 185, 129));
+                
+                // Update system prompt in conversation
+                if (_conversation.Count > 0)
+                {
+                    _conversation[0] = new { role = "system", content = _detailedSystemPrompt };
+                }
+                
+                // Show notification
+                _chatMessages.AppendLine();
+                _chatMessages.AppendLine("━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+                _chatMessages.AppendLine("📚 Switched to DETAILED MODE");
+                _chatMessages.AppendLine("Responses will be comprehensive explanations with examples.");
+                _chatMessages.AppendLine("━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+                _chatMessages.AppendLine();
+            }
+            
+            ChatTextBlock.Text = _chatMessages.ToString();
+            ChatScrollViewer.ScrollToEnd();
+        });
+    }
+
+    private void ToggleModeButton_Click(object sender, RoutedEventArgs e)
+    {
+        ToggleMode();
     }
 
     private void CloseButton_Click(object sender, RoutedEventArgs e)

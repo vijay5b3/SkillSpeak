@@ -236,6 +236,36 @@
         cursor: not-allowed;
       }
 
+      #toggle-mode {
+        background: linear-gradient(135deg, 
+          rgba(16, 185, 129, 0.9) 0%,
+          rgba(5, 150, 105, 0.9) 100%);
+        color: white;
+        font-size: 14px;
+        min-width: 140px;
+        padding: 10px 20px;
+      }
+
+      #toggle-mode:hover {
+        background: linear-gradient(135deg, 
+          rgba(16, 185, 129, 1) 0%,
+          rgba(5, 150, 105, 1) 100%);
+        box-shadow: 0 4px 12px rgba(16, 185, 129, 0.4);
+      }
+
+      #toggle-mode.simple-mode {
+        background: linear-gradient(135deg, 
+          rgba(245, 158, 11, 0.9) 0%,
+          rgba(217, 119, 6, 0.9) 100%);
+      }
+
+      #toggle-mode.simple-mode:hover {
+        background: linear-gradient(135deg, 
+          rgba(245, 158, 11, 1) 0%,
+          rgba(217, 119, 6, 1) 100%);
+        box-shadow: 0 4px 12px rgba(245, 158, 11, 0.4);
+      }
+
       #record {
         background: linear-gradient(135deg, 
           rgba(237, 100, 166, 0.9) 0%,
@@ -309,6 +339,12 @@
           min-width: 80px;
         }
 
+        #toggle-mode {
+          flex: 1;
+          min-width: 100px;
+          font-size: 13px;
+        }
+
         #send {
           flex: 1;
         }
@@ -378,6 +414,28 @@
         0%, 80%, 100% { transform: scale(0); }
         40% { transform: scale(1); }
       }
+
+      @keyframes slideDown {
+        from {
+          opacity: 0;
+          transform: translateX(-50%) translateY(-20px);
+        }
+        to {
+          opacity: 1;
+          transform: translateX(-50%) translateY(0);
+        }
+      }
+
+      @keyframes slideUp {
+        from {
+          opacity: 1;
+          transform: translateX(-50%) translateY(0);
+        }
+        to {
+          opacity: 0;
+          transform: translateX(-50%) translateY(-20px);
+        }
+      }
     </style>
   </head>
   <body>
@@ -387,6 +445,7 @@
     </div>
     <div id="messages"></div>
     <div id="controls">
+      <button id="toggle-mode" title="Toggle between Detailed and Simple mode">📚 Detailed Mode</button>
       <textarea id="prompt" placeholder="Ask me anything... (e.g., 'What is binary search?')"></textarea>
       <button id="record" title="Click to start voice recording">🎤 Voice</button>
       <button id="send">Send 📤</button>

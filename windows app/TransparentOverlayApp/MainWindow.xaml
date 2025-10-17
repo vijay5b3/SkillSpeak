@@ -34,6 +34,22 @@
                 ToolTip="Close"
                 Click="CloseButton_Click"/>
 
+        <!-- Mode toggle button in top-left corner -->
+        <Button x:Name="ToggleModeButton"
+                Content="📚 Detailed"
+                Width="110" Height="32"
+                HorizontalAlignment="Left" VerticalAlignment="Top"
+                Margin="8"
+                Foreground="White" 
+                Background="#4010B981"
+                BorderThickness="1"
+                BorderBrush="#8010B981"
+                Cursor="Hand"
+                FontSize="12"
+                FontWeight="Bold"
+                ToolTip="Toggle between Detailed and Simple mode (F3)"
+                Click="ToggleModeButton_Click"/>
+
         <!-- Chat messages display -->
         <ScrollViewer x:Name="ChatScrollViewer"
                       VerticalScrollBarVisibility="Auto"
@@ -105,7 +121,7 @@
                     Foreground="White"/>
         
         <!-- Bottom status bar -->
-        <TextBlock Text="SRMV | F2: Toggle Transparency | Drag: Move | Corners: Resize | Enter: Send"
+        <TextBlock Text="SRMV | F2: Toggle Transparency | F3: Toggle Mode | Drag: Move | Enter: Send"
                    Foreground="#80FFFFFF"
                    FontSize="10"
                    HorizontalAlignment="Center"

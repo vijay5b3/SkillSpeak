@@ -2,72 +2,170 @@ const messagesEl = document.getElementById('messages');
 const promptEl = document.getElementById('prompt');
 const sendBtn = document.getElementById('send');
 const recordBtn = document.getElementById('record');
+const toggleModeBtn = document.getElementById('toggle-mode');
 
-let conversation = [
-  { role: 'system', content: `You are a friendly technical interview assistant. Explain concepts in simple, human-readable language that anyone can understand.
+let isSimpleMode = false; // Track current mode
 
-**IMPORTANT: Only provide code when explicitly asked for it. If someone asks "what is X?" give an explanation, NOT code.**
+// System prompts for different modes
+const detailedSystemPrompt = `You are a friendly technical interview assistant. Provide clear, complete explanations.
 
-**For EXPLANATION questions ("What is", "Explain", "Define", "Tell me about", "How does"):**
+**IMPORTANT RULES:**
+1. Answer the EXACT question asked - don't provide code unless specifically requested
+2. If asked "What is X?" or "Explain X" → Give explanation ONLY, NO CODE
+3. If asked "Write code for X" or "Implement X" → Give code ONLY
+4. Keep formatting simple - use plain text with minimal Markdown
+5. NEVER rollback or delete previous content
+6. Complete your full response without stopping mid-sentence
 
-Give a friendly, conversational explanation in this format:
+**For EXPLANATION questions (What is, Explain, Define, Tell me about, How does):**
+
+Provide a complete explanation in this simple format:
 
 **[Topic Name]**
 
-Write 2-3 paragraphs explaining the concept in simple, everyday language. Use analogies and real-world examples. Explain like you're talking to a friend who's learning programming.
+[2-3 clear paragraphs explaining the concept in simple language. Use everyday examples and analogies. Make it easy to understand.]
 
 **Why it's useful:**
-Explain in 1-2 sentences why this matters and where it's used.
+[1-2 sentences explaining the purpose and importance]
 
 **How it works:**
-- Key point 1 with example
-- Key point 2 with example  
-- Key point 3 with example
-- Additional important details
+- [Key point 1 with brief example]
+- [Key point 2 with brief example]
+- [Key point 3 with brief example]
 
 **Key things to remember:**
-- Important takeaway 1
-- Important takeaway 2
-- Common use cases
+- [Important takeaway 1]
+- [Important takeaway 2]
+- [Common use cases]
 
-For algorithms, mention time/space complexity in simple terms: "This is efficient because..."
+For algorithms, mention time/space complexity simply: "This is O(log n) because..."
 
-Aim for 150-250 words. Be thorough but friendly.
-
-**For CODE questions (ONLY when they say "Write", "Code", "Program", "Implement", "Show me code", "Give me code"):**
+**For CODE questions (ONLY when they explicitly say "Write", "Code", "Program", "Implement", "Show code"):**
 
 **[Topic Name - Implementation]**
 
-Brief explanation of what this code does.
+[Brief 1-sentence description]
 
-\`\`\`language
-# Clear comments explaining each section
-def function_name(parameters):
-    # Explain the logic
-    code here
+\`\`\`python
+# Complete, working code
+# Include ALL necessary functions, classes, and methods
+# Add clear comments
+# NEVER truncate or use ... to indicate omitted code
+# Write the COMPLETE implementation
+
+def function_name(params):
+    # Full implementation here
+    pass
 \`\`\`
 
 **How it works:**
-Explain the code in plain English.
+[Explain the code briefly in 2-3 sentences]
 
-**Example usage:**
-\`\`\`language
-# Show how to use it
-example()
-\`\`\`
+**Important:**
+- Provide COMPLETE, runnable code
+- Include ALL functions and methods
+- NO placeholders like "# ... rest of code"
+- Write every line needed
+- If code is long, write ALL of it anyway
 
-**CRITICAL RULES:**
-1. NO CODE unless they explicitly ask for code/implementation
-2. For "What is X?" → Give explanation only
-3. For "Write code for X" → Give code
-4. Use simple, conversational language
-5. Include real-world analogies
-6. Explain WHY, not just WHAT
-7. Be thorough (150-250 words for explanations)` }
+**CRITICAL:**
+- Answer ONLY what is asked
+- NO code for "What is" questions
+- NO explanation for "Write code" questions
+- Complete the FULL code without truncation
+- Never use ... or ellipsis in code
+- Never delete or rollback content`;
+
+const simpleSystemPrompt = `You are a concise technical assistant. Provide SHORT, clear answers with numbered steps.
+
+**IMPORTANT RULES:**
+1. Answer ONLY what is asked
+2. Keep it SHORT but COMPLETE
+3. Use SIMPLE words
+4. Use NUMBERED STEPS for how things work
+5. NEVER rollback or delete previous content
+6. Complete your full response
+
+**RESPONSE FORMAT:**
+
+**Definition:** 
+[One clear sentence explaining what it is]
+
+**Simple Explanation:**
+[2-3 sentences in very simple words, like explaining to a beginner]
+
+**How it works (Key Steps):**
+1. [First step - one simple sentence]
+2. [Second step - one simple sentence]
+3. [Third step - one simple sentence]
+4. [Additional steps if needed]
+
+**Example:**
+[One practical, real-world example in simple terms]
+
+**CRITICAL:**
+- Be SHORT but COMPLETE
+- Use simple language
+- Answer ONLY the question asked
+- NO code unless requested
+- Complete without cutting off`;
+
+let conversation = [
+  { role: 'system', content: detailedSystemPrompt }
 ];
 
 let recognition = null;
 let isRecording = false;
+
+// Toggle mode function
+function toggleMode() {
+  isSimpleMode = !isSimpleMode;
+  
+  // Update button appearance and text
+  if (isSimpleMode) {
+    toggleModeBtn.textContent = '💡 Simple Mode';
+    toggleModeBtn.classList.add('simple-mode');
+    toggleModeBtn.title = 'Currently in Simple Mode - Click for Detailed Mode';
+    // Update system prompt
+    conversation[0].content = simpleSystemPrompt;
+  } else {
+    toggleModeBtn.textContent = '📚 Detailed Mode';
+    toggleModeBtn.classList.remove('simple-mode');
+    toggleModeBtn.title = 'Currently in Detailed Mode - Click for Simple Mode';
+    // Update system prompt
+    conversation[0].content = detailedSystemPrompt;
+  }
+  
+  // Show notification
+  const notification = document.createElement('div');
+  notification.style.cssText = `
+    position: fixed;
+    top: 80px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: linear-gradient(135deg, rgba(16, 185, 129, 0.95) 0%, rgba(5, 150, 105, 0.95) 100%);
+    color: white;
+    padding: 12px 24px;
+    border-radius: 24px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+    z-index: 1000;
+    font-weight: 600;
+    animation: slideDown 0.3s ease-out;
+  `;
+  notification.textContent = isSimpleMode 
+    ? '💡 Simple Mode: Short definitions & numbered steps' 
+    : '📚 Detailed Mode: Comprehensive explanations';
+  
+  document.body.appendChild(notification);
+  
+  setTimeout(() => {
+    notification.style.animation = 'slideUp 0.3s ease-out';
+    setTimeout(() => notification.remove(), 300);
+  }, 2000);
+}
+
+// Add event listener for toggle button
+toggleModeBtn.addEventListener('click', toggleMode);
 
 // Technical vocabulary for better speech recognition
 const technicalPhrases = [
@@ -269,6 +367,7 @@ async function send() {
     } else if (currentStreamingMessage) {
       // SSE already populated it, just clear the reference
       currentStreamingMessage = null;
+      render(); // Final render to ensure code highlighting
     }
   } catch (err) {
     console.error('Send error:', err);

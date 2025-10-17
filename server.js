@@ -43,8 +43,8 @@ const PORT = process.env.PORT || 3000;
 const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
 const OPENROUTER_MODEL = process.env.OPENROUTER_MODEL;
 const OPENROUTER_BASE_URL = process.env.OPENROUTER_BASE_URL || 'https://openrouter.ai/api/v1';
-const MAX_TOKENS = process.env.MAX_TOKENS ? parseInt(process.env.MAX_TOKENS, 10) : 120;
-const TEMPERATURE = process.env.TEMPERATURE ? parseFloat(process.env.TEMPERATURE) : 0.0;
+const MAX_TOKENS = process.env.MAX_TOKENS ? parseInt(process.env.MAX_TOKENS, 10) : 32768;
+const TEMPERATURE = process.env.TEMPERATURE ? parseFloat(process.env.TEMPERATURE) : 0.3;
 const OPENROUTER_SYSTEM_PROMPT = process.env.OPENROUTER_SYSTEM_PROMPT || `You are an expert technical interview assistant. STRICTLY follow the exact cheat-sheet format below and nothing else. Do not add extra commentary, examples, or apologies. If you cannot answer precisely, respond with "I don't know." Keep responses extremely concise (preferably under 120 words).
 
 Format to use (exact):
@@ -169,19 +169,30 @@ What would you like to learn about today?`;
       {
         model: OPENROUTER_MODEL,
         messages: outgoingBase,
-        max_tokens: wantsCode ? Math.min(MAX_TOKENS * 6, 2048) : MAX_TOKENS,
+        max_tokens: 6000, // Increased for large code responses (within Mistral 7B's 8K limit)
         temperature: TEMPERATURE,
-        stream: true  // Enable streaming from OpenRouter
+        stream: true,  // Enable streaming from OpenRouter
+        top_p: 0.95,   // Add top_p for better completion
+        presence_penalty: 0.0,  // Don't penalize topics
+        frequency_penalty: 0.0  // Don't penalize repetition (helps avoid rollback)
       },
       {
         headers: {
           'Authorization': `Bearer ${OPENROUTER_API_KEY}`,
           'Content-Type': 'application/json'
         },
-        timeout: 120000,
-        responseType: 'stream'  // Receive response as a stream
+        timeout: 300000,  // Increased to 5 minutes for large code responses
+        responseType: 'stream',  // Receive response as a stream
+        validateStatus: function (status) {
+          return status >= 200 && status < 300; // Only accept 2xx status codes
+        }
       }
     );
+
+    // Check if response status is OK
+    if (resp.status !== 200) {
+      throw new Error(`OpenRouter API returned status ${resp.status}`);
+    }
 
     // Broadcast user message first
     if (lastUser) {
@@ -191,10 +202,24 @@ What would you like to learn about today?`;
     // Stream the response chunks in real-time
     let fullResponse = '';
     let buffer = '';
+    let streamError = null;
     
     resp.data.on('data', (chunk) => {
       const chunkStr = chunk.toString('utf8');
       buffer += chunkStr;
+      
+      // Check if this is an error response (JSON error instead of SSE)
+      if (buffer.includes('"error"') && buffer.includes('{') && !buffer.includes('data:')) {
+        try {
+          const errorData = JSON.parse(buffer);
+          if (errorData.error) {
+            streamError = errorData.error.message || errorData.error || 'API error occurred';
+            return;
+          }
+        } catch (e) {
+          // Not a JSON error, continue processing as SSE
+        }
+      }
       
       // Process complete SSE messages (data: {...}\n\n)
       const lines = buffer.split('\n');
@@ -235,6 +260,11 @@ What would you like to learn about today?`;
       resp.data.on('error', reject);
     });
 
+    // Check if stream error occurred
+    if (streamError) {
+      throw new Error(streamError);
+    }
+
     // Broadcast final complete message
     if (fullResponse) {
       broadcastEvent({ 
@@ -263,10 +293,14 @@ What would you like to learn about today?`;
 
     return res.json(responseData);
   } catch (err) {
-    console.error('OpenRouter error:', err && err.response ? err.response.data : err.message);
-    const status = err.response ? err.response.status : 500;
-    const data = err.response ? err.response.data : { error: err.message };
-    return res.status(status).json({ error: data });
+    console.error('OpenRouter error:', err.message);
+    if (err.response) {
+      console.error('Response status:', err.response.status);
+      console.error('Response data:', err.response.data);
+    }
+    const status = err.response?.status || 500;
+    const errorMessage = err.response?.data?.error?.message || err.response?.data?.error || err.message || 'Unknown error occurred';
+    return res.status(status).json({ error: errorMessage });
   }
 });
 
