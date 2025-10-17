@@ -69,31 +69,76 @@ example()
 let recognition = null;
 let isRecording = false;
 
+// Technical vocabulary for better speech recognition
+const technicalPhrases = [
+  'JavaScript', 'TypeScript', 'Python', 'Java', 'C++', 'C#', 'Node.js', 'React', 'Angular', 'Vue.js',
+  'Databricks', 'Delta Lake', 'MLflow', 'Unity Catalog', 'Spark SQL', 'Pandas', 'NumPy', 'TensorFlow',
+  'AWS', 'Azure', 'Google Cloud', 'Kubernetes', 'Docker', 'API', 'REST', 'GraphQL', 'MongoDB', 'PostgreSQL',
+  'Binary Search', 'Linked List', 'Hash Table', 'Recursion', 'Algorithm', 'Machine Learning', 'Neural Network'
+];
+
 // Initialize Web Speech API if available
 if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
   const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+  const SpeechGrammarList = window.SpeechGrammarList || window.webkitSpeechGrammarList;
+  
   recognition = new SpeechRecognition();
   recognition.continuous = false;
-  recognition.interimResults = false;
+  recognition.interimResults = true; // Enable interim results for better UX
   recognition.lang = 'en-US';
+  recognition.maxAlternatives = 3; // Get multiple alternatives for better accuracy
+  
+  // Add technical vocabulary grammar (if supported)
+  if (SpeechGrammarList) {
+    const grammarList = new SpeechGrammarList();
+    const grammar = '#JSGF V1.0; grammar technical; public <term> = ' + technicalPhrases.join(' | ') + ' ;';
+    grammarList.addFromString(grammar, 1);
+    recognition.grammars = grammarList;
+  }
 
   recognition.onstart = () => {
     isRecording = true;
     recordBtn.textContent = '⏹️ Stop';
     recordBtn.classList.add('recording');
+    promptEl.placeholder = '🎤 Listening... (speak now)';
   };
 
   recognition.onend = () => {
     isRecording = false;
     recordBtn.textContent = '🎤 Voice';
     recordBtn.classList.remove('recording');
+    promptEl.placeholder = 'Ask me anything... (e.g., "What is binary search?")';
   };
 
   recognition.onresult = (event) => {
-    const transcript = event.results[0][0].transcript;
-    promptEl.value = transcript;
-    // Auto-send after transcription
-    send();
+    let interimTranscript = '';
+    let finalTranscript = '';
+    
+    // Process all results
+    for (let i = event.resultIndex; i < event.results.length; ++i) {
+      const transcript = event.results[i][0].transcript;
+      if (event.results[i].isFinal) {
+        finalTranscript += transcript;
+      } else {
+        interimTranscript += transcript;
+      }
+    }
+    
+    // Show interim results in the input box
+    if (interimTranscript) {
+      promptEl.value = interimTranscript;
+      promptEl.style.fontStyle = 'italic';
+      promptEl.style.opacity = '0.7';
+    }
+    
+    // When final result is available, send it
+    if (finalTranscript) {
+      promptEl.value = finalTranscript;
+      promptEl.style.fontStyle = 'normal';
+      promptEl.style.opacity = '1';
+      // Auto-send after transcription
+      setTimeout(() => send(), 500); // Small delay for user to see the transcription
+    }
   };
 
   recognition.onerror = (event) => {
