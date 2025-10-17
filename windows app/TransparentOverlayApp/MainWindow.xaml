@@ -1,0 +1,115 @@
+<Window x:Class="TransparentOverlayApp.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        mc:Ignorable="d"
+        Title="SRMV - AI Assistant Overlay"
+        WindowStyle="None"
+        AllowsTransparency="True"
+        Background="#FF000000"
+        Opacity="0.6"
+        Topmost="True"
+        Width="800"
+        Height="500"
+        MinWidth="400"
+        MinHeight="300"
+        ResizeMode="CanResizeWithGrip"
+        ShowInTaskbar="False"
+        KeyDown="Window_KeyDown"
+        PreviewKeyDown="Window_PreviewKeyDown"
+        Loaded="Window_Loaded">
+    <!-- Root Grid doubles as drag surface -->
+    <Grid MouseLeftButtonDown="DragSurface_MouseLeftButtonDown" Background="Transparent">
+        <!-- Optional acrylic-like blur is attempted via Win32 interop in code-behind if supported -->
+
+        <!-- Close button in top-right corner -->
+        <Button Content="✕"
+                Width="28" Height="28"
+                HorizontalAlignment="Right" VerticalAlignment="Top"
+                Margin="8"
+                Foreground="White" Background="#40FFFFFF"
+                BorderThickness="0"
+                Cursor="Hand"
+                ToolTip="Close"
+                Click="CloseButton_Click"/>
+
+        <!-- Chat messages display -->
+        <ScrollViewer x:Name="ChatScrollViewer"
+                      VerticalScrollBarVisibility="Auto"
+                      Margin="10,40,10,90">
+            <TextBlock x:Name="ChatTextBlock"
+                       Text="Connecting to chat server..."
+                       Foreground="White"
+                       FontSize="14"
+                       TextWrapping="Wrap"
+                       TextAlignment="Left"
+                       Padding="10"
+                       LineHeight="20"/>
+        </ScrollViewer>
+        
+        <!-- Input area at bottom with background -->
+        <Border VerticalAlignment="Bottom" 
+                Margin="10,0,10,20" 
+                Height="60"
+                Background="#30000000"
+                BorderBrush="#80FFFFFF"
+                BorderThickness="1"
+                Padding="5">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                
+                <!-- Text input box -->
+                <TextBox x:Name="InputTextBox"
+                         Grid.Column="0"
+                         Background="#60FFFFFF"
+                         Foreground="White"
+                         FontSize="14"
+                         Padding="10"
+                         VerticalContentAlignment="Center"
+                         BorderThickness="0"
+                         TextWrapping="Wrap"
+                         VerticalScrollBarVisibility="Auto"
+                         MaxHeight="50"
+                         KeyDown="InputTextBox_KeyDown"
+                         Text="Type your question here..."/>
+                
+                <!-- Send button -->
+                <Button x:Name="SendButton"
+                        Grid.Column="1"
+                        Content="📤 Send"
+                        Width="90"
+                        Height="45"
+                        Margin="5,0,0,0"
+                        Background="#FF4CAF50"
+                        Foreground="White"
+                        FontSize="13"
+                        FontWeight="Bold"
+                        BorderThickness="0"
+                        Cursor="Hand"
+                        Click="SendButton_Click"/>
+            </Grid>
+        </Border>
+        
+        <!-- Resize grip indicator -->
+        <ResizeGrip x:Name="ResizeGripControl"
+                    HorizontalAlignment="Right"
+                    VerticalAlignment="Bottom"
+                    Width="16" Height="16"
+                    Margin="0,0,4,4"
+                    Opacity="0.5"
+                    Background="Transparent"
+                    Foreground="White"/>
+        
+        <!-- Bottom status bar -->
+        <TextBlock Text="SRMV | F2: Toggle Transparency | Drag: Move | Corners: Resize | Enter: Send"
+                   Foreground="#80FFFFFF"
+                   FontSize="10"
+                   HorizontalAlignment="Center"
+                   VerticalAlignment="Bottom"
+                   Margin="0,0,0,4"/>
+    </Grid>
+</Window>

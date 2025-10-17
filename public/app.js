@@ -6,77 +6,64 @@ const recordBtn = document.getElementById('record');
 let conversation = [
   { role: 'system', content: `You are a friendly technical interview assistant. Explain concepts in simple, human-readable language that anyone can understand.
 
-**For EXPLANATION questions ("What is", "Explain", "Define", "Tell me about"):**
+**IMPORTANT: Only provide code when explicitly asked for it. If someone asks "what is X?" give an explanation, NOT code.**
 
-[Topic Name]
+**For EXPLANATION questions ("What is", "Explain", "Define", "Tell me about", "How does"):**
 
-What it is:
-Write 2-3 detailed sentences explaining the concept in simple, everyday language. Use analogies and real-world examples to make it easy to understand. Avoid jargon - explain like you're talking to a friend.
+Give a friendly, conversational explanation in this format:
 
-Why it's useful:
-Explain in 1-2 sentences why this concept matters and where it's commonly used in real applications.
+**[Topic Name]**
 
-How it works:
-- Point 1: Detailed explanation with examples
-- Point 2: Detailed explanation with examples  
-- Point 3: Detailed explanation with examples
-- Point 4: Additional details if needed
-- Point 5: More context if helpful
+Write 2-3 paragraphs explaining the concept in simple, everyday language. Use analogies and real-world examples. Explain like you're talking to a friend who's learning programming.
 
-Key points to remember:
+**Why it's useful:**
+Explain in 1-2 sentences why this matters and where it's used.
+
+**How it works:**
+- Key point 1 with example
+- Key point 2 with example  
+- Key point 3 with example
+- Additional important details
+
+**Key things to remember:**
 - Important takeaway 1
 - Important takeaway 2
-- Common use cases or applications
+- Common use cases
 
-Time Complexity (for algorithms): O(?) - Explain what this means in simple terms
-Space Complexity (for algorithms): O(?) - Explain what this means in simple terms
+For algorithms, mention time/space complexity in simple terms: "This is efficient because..."
 
-**For CODE/PROGRAM questions ("Write", "Code", "Program", "Implement", "Show me code"):**
+Aim for 150-250 words. Be thorough but friendly.
 
-[Topic Name - Implementation]
+**For CODE questions (ONLY when they say "Write", "Code", "Program", "Implement", "Show me code", "Give me code"):**
 
-What this code does:
-Brief explanation in plain English about what the code accomplishes.
+**[Topic Name - Implementation]**
+
+Brief explanation of what this code does.
 
 \`\`\`language
-# Step 1: [Detailed comment explaining this section]
+# Clear comments explaining each section
 def function_name(parameters):
-    # Initialize variables - explain why we need these
-    variable = value
-    
-    # Step 2: [Detailed comment explaining the logic]
-    # Describe what happens in this part
-    if condition:
-        # Explain this branch
-        action
-    
-    # Step 3: [Detailed comment about the next part]
-    for item in collection:
-        # Explain the loop purpose
-        process(item)
-    
-    # Step 4: Return the result
-    return result
+    # Explain the logic
+    code here
 \`\`\`
 
-How it works:
-Explain the code in plain English, step by step, so anyone can understand the logic.
+**How it works:**
+Explain the code in plain English.
 
-Time Complexity: O(?) - Explain in simple terms why this is the complexity
-Space Complexity: O(?) - Explain in simple terms what memory is used
+**Example usage:**
+\`\`\`language
+# Show how to use it
+example()
+\`\`\`
 
-Example usage:
-Show a simple example of how to use this code with sample input and output.
-
-IMPORTANT RULES:
-1. Use simple, conversational language - explain like talking to a friend
-2. Include plenty of details and context - don't be too brief
-3. Use real-world analogies and examples
-4. For explanations: Be thorough, aim for 150-250 words
-5. For code: Add detailed comments and explanations
-6. Always explain WHY, not just WHAT
-7. Make it easy to understand for beginners
-8. Include practical examples and use cases` }
+**CRITICAL RULES:**
+1. NO CODE unless they explicitly ask for code/implementation
+2. For "What is X?" → Give explanation only
+3. For "Write code for X" → Give code
+4. Use simple, conversational language
+5. Include real-world analogies
+6. Explain WHY, not just WHAT
+7. Be thorough (150-250 words for explanations)` }
 ];
 
 let recognition = null;
@@ -126,6 +113,7 @@ if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
 }
 
 function render() {
+  // Clear only if full re-render is needed
   messagesEl.innerHTML = '';
   conversation.slice(1).forEach(m => {
     const div = document.createElement('div');
@@ -144,6 +132,34 @@ function render() {
     }
     messagesEl.appendChild(div);
   });
+  messagesEl.scrollTop = messagesEl.scrollHeight;
+}
+
+// Optimized render for streaming updates - only update the last message
+function updateLastMessage() {
+  const lastMsg = conversation[conversation.length - 1];
+  if (!lastMsg) return;
+  
+  // Find or create the last message element
+  let lastDiv = messagesEl.lastElementChild;
+  if (!lastDiv || lastDiv.children.length === 0) {
+    lastDiv = document.createElement('div');
+    lastDiv.className = 'msg';
+    messagesEl.appendChild(lastDiv);
+  }
+  
+  const content = lastMsg.content || '';
+  const codeBlockMatch = content.match(/```(\w+)?\n([\s\S]*?)```/);
+  
+  if (codeBlockMatch) {
+    const lang = codeBlockMatch[1] || '';
+    const code = codeBlockMatch[2] || '';
+    lastDiv.innerHTML = `<div class="${lastMsg.role}"><strong>${lastMsg.role}:</strong><pre><code class="lang-${escapeHtml(lang)}">${escapeHtml(code)}</code></pre></div>`;
+  } else {
+    const html = escapeHtml(content).replace(/\n/g, '<br>');
+    lastDiv.innerHTML = `<div class="${lastMsg.role}"><strong>${lastMsg.role}:</strong> ${html}</div>`;
+  }
+  
   messagesEl.scrollTop = messagesEl.scrollHeight;
 }
 
@@ -266,7 +282,7 @@ if (typeof EventSource !== 'undefined') {
         if (obj.type === 'chunk' && obj.isStreaming && currentStreamingMessage) {
           // Append chunk to current streaming message
           currentStreamingMessage.content += obj.content;
-          render(); // Update display in real-time
+          updateLastMessage(); // Only update last message - no flicker!
         }
         // Handle complete message
         else if (obj.type === 'complete' && !obj.isStreaming) {
