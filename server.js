@@ -122,6 +122,44 @@ app.post('/api/chat', async (req, res) => {
     // Use the client's messages as the outgoing conversation start (do not inject server-side system prompts)
     const outgoingBase = clientMessages;
 
+    // Check for simple greetings and respond immediately
+    const greetingKeywords = ['hi', 'hello', 'hey', 'greetings', 'good morning', 'good afternoon', 'good evening'];
+    const isSimpleGreeting = lastUserText.trim().length < 20 && greetingKeywords.some(g => lastUserText.toLowerCase().includes(g));
+    
+    if (isSimpleGreeting) {
+      const greetingResponse = `Hello! 👋 I'm your friendly technical interview assistant. I'm here to help you with:
+
+- **Explaining concepts** in simple, easy-to-understand language
+- **Providing code examples** with detailed comments
+- **Breaking down algorithms** step-by-step
+- **Answering technical questions** about programming, data structures, and more
+
+Ask me anything! For example:
+- "What is binary search?"
+- "Explain how quicksort works"
+- "Write a Python function to reverse a string"
+
+What would you like to learn about today?`;
+
+      // Broadcast greeting exchange
+      if (lastUser) {
+        broadcastEvent({ role: 'user', type: 'user', content: lastUser.content });
+      }
+      broadcastEvent({ role: 'assistant', type: 'complete', content: greetingResponse, isStreaming: false });
+
+      return res.json({
+        id: 'greeting-' + Date.now(),
+        object: 'chat.completion',
+        created: Math.floor(Date.now() / 1000),
+        model: OPENROUTER_MODEL,
+        choices: [{
+          index: 0,
+          message: { role: 'assistant', content: greetingResponse },
+          finish_reason: 'stop'
+        }]
+      });
+    }
+
     // **STREAMING ENABLED**: Use responseType: 'stream' to get real-time chunks
     const resp = await axios.post(
       `${OPENROUTER_BASE_URL}/chat/completions`,

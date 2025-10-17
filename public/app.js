@@ -93,15 +93,13 @@ if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
   recognition.onstart = () => {
     isRecording = true;
     recordBtn.textContent = '⏹️ Stop';
-    recordBtn.style.background = '#ff4444';
-    recordBtn.style.color = '#fff';
+    recordBtn.classList.add('recording');
   };
 
   recognition.onend = () => {
     isRecording = false;
-    recordBtn.textContent = '🎤 Record';
-    recordBtn.style.background = '';
-    recordBtn.style.color = '';
+    recordBtn.textContent = '🎤 Voice';
+    recordBtn.classList.remove('recording');
   };
 
   recognition.onresult = (event) => {
@@ -114,10 +112,16 @@ if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
   recognition.onerror = (event) => {
     console.error('Speech recognition error:', event.error);
     isRecording = false;
-    recordBtn.textContent = '🎤 Record';
-    recordBtn.style.background = '';
-    recordBtn.style.color = '';
-    alert('Speech recognition error: ' + event.error);
+    recordBtn.textContent = '🎤 Voice';
+    recordBtn.classList.remove('recording');
+    
+    let errorMsg = 'Speech recognition error';
+    if (event.error === 'no-speech') {
+      errorMsg = 'No speech detected. Please try again.';
+    } else if (event.error === 'not-allowed') {
+      errorMsg = 'Microphone access denied. Please allow microphone access.';
+    }
+    alert(errorMsg);
   };
 }
 
@@ -218,16 +222,25 @@ async function send() {
 }
 
 sendBtn.addEventListener('click', send);
+
 recordBtn.addEventListener('click', () => {
   if (!recognition) {
-    alert('Speech recognition is not supported in your browser. Please use Chrome or Edge.');
+    alert('🎤 Voice input is not supported in your browser.\n\nPlease use:\n- Chrome\n- Edge\n- Safari (iOS)\n\nFirefox does not support speech recognition.');
     return;
   }
   
   if (isRecording) {
     recognition.stop();
   } else {
-    recognition.start();
+    try {
+      recognition.start();
+    } catch (e) {
+      console.error('Recognition start error:', e);
+      if (e.message.includes('already started')) {
+        recognition.stop();
+        setTimeout(() => recognition.start(), 100);
+      }
+    }
   }
 });
 
