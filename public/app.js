@@ -260,10 +260,15 @@ async function send() {
     }
 
     // Update the streaming placeholder with final content
-    if (currentStreamingMessage) {
+    // Note: For streaming, this will be updated via SSE events
+    // This is just a fallback for non-streaming responses
+    if (currentStreamingMessage && currentStreamingMessage.content === '') {
       currentStreamingMessage.content = assistantText;
       currentStreamingMessage = null;
       render();
+    } else if (currentStreamingMessage) {
+      // SSE already populated it, just clear the reference
+      currentStreamingMessage = null;
     }
   } catch (err) {
     console.error('Send error:', err);
