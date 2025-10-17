@@ -402,12 +402,10 @@ example()
     {
         Dispatcher.Invoke(() =>
         {
-            // Add message with simple separator
-            _chatMessages.AppendLine($"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+            // Add message with clean format - no horizontal lines
             _chatMessages.AppendLine($"[{sender}]");
-            _chatMessages.AppendLine();
             _chatMessages.AppendLine(content);
-            _chatMessages.AppendLine();
+            _chatMessages.AppendLine(); // Just one blank line between messages
             
             ChatTextBlock.Text = _chatMessages.ToString();
             
