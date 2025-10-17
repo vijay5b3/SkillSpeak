@@ -272,7 +272,6 @@ example()
                                             
                                             Dispatcher.Invoke(() =>
                                             {
-                                                _chatMessages.AppendLine($"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
                                                 _chatMessages.AppendLine($"[{sender}] ⚡ streaming...");
                                                 _chatMessages.AppendLine();
                                                 ChatTextBlock.Text = _chatMessages.ToString();
@@ -299,7 +298,6 @@ example()
                                                     {
                                                         _chatMessages.AppendLine(lines[j]);
                                                     }
-                                                    _chatMessages.AppendLine($"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
                                                     _chatMessages.AppendLine($"[{_currentStreamingSender}] ⚡ streaming...");
                                                     _chatMessages.AppendLine();
                                                     _chatMessages.AppendLine(_currentStreamingMessage.ToString());
@@ -334,9 +332,7 @@ example()
                                                         {
                                                             _chatMessages.AppendLine(lines[j]);
                                                         }
-                                                        _chatMessages.AppendLine($"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
                                                         _chatMessages.AppendLine($"[{_currentStreamingSender}]");
-                                                        _chatMessages.AppendLine();
                                                         _chatMessages.AppendLine(content);
                                                         _chatMessages.AppendLine();
                                                         break;
@@ -509,9 +505,7 @@ example()
             // Display user message immediately
             Dispatcher.Invoke(() =>
             {
-                _chatMessages.AppendLine($"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
                 _chatMessages.AppendLine($"[👤 You]");
-                _chatMessages.AppendLine();
                 _chatMessages.AppendLine(message);
                 _chatMessages.AppendLine();
                 ChatTextBlock.Text = _chatMessages.ToString();
@@ -551,9 +545,7 @@ example()
                             // Display assistant response
                             Dispatcher.Invoke(() =>
                             {
-                                _chatMessages.AppendLine($"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
                                 _chatMessages.AppendLine($"[🤖 Assistant]");
-                                _chatMessages.AppendLine();
                                 _chatMessages.AppendLine(assistantResponse);
                                 _chatMessages.AppendLine();
                                 ChatTextBlock.Text = _chatMessages.ToString();
@@ -568,9 +560,7 @@ example()
         {
             Dispatcher.Invoke(() =>
             {
-                _chatMessages.AppendLine($"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
                 _chatMessages.AppendLine($"[❌ Error]");
-                _chatMessages.AppendLine();
                 _chatMessages.AppendLine($"Failed to send message: {ex.Message}");
                 _chatMessages.AppendLine();
                 ChatTextBlock.Text = _chatMessages.ToString();
