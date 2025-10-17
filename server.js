@@ -121,6 +121,9 @@ app.post('/api/chat', async (req, res) => {
 
     // Use the client's messages as the outgoing conversation start (do not inject server-side system prompts)
     const outgoingBase = clientMessages;
+    
+    // Get last user message (needed for greeting check and broadcasting)
+    const lastUser = userMessages.length ? userMessages[userMessages.length - 1] : null;
 
     // Check for simple greetings and respond immediately
     const greetingKeywords = ['hi', 'hello', 'hey', 'greetings', 'good morning', 'good afternoon', 'good evening'];
@@ -181,7 +184,6 @@ What would you like to learn about today?`;
     );
 
     // Broadcast user message first
-    const lastUser = userMessages.length ? userMessages[userMessages.length - 1] : null;
     if (lastUser) {
       broadcastEvent({ role: 'user', type: 'user', content: lastUser.content });
     }
