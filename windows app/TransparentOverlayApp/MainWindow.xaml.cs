@@ -19,9 +19,10 @@ public partial class MainWindow : Window
     private CancellationTokenSource _cancellationTokenSource;
     private StringBuilder _chatMessages = new StringBuilder();
     private bool _isConnected = false;
+    private string _clientId; // Unique client identifier for session isolation
     // Production Vercel URLs
-    private readonly string _serverUrl = "https://chat-bot-final-b1uz.vercel.app/events";
-    private readonly string _chatApiUrl = "https://chat-bot-final-b1uz.vercel.app/api/chat";
+    private string _serverUrl; // Will be set with clientId in constructor
+    private string _chatApiUrl; // Will be set with clientId in constructor
     private List<object> _conversation = new List<object>();
     private StringBuilder _currentStreamingMessage = null; // Track streaming message
     private string _currentStreamingSender = "";  // Track who is streaming
@@ -133,12 +134,22 @@ def function_name(params):
 
     public MainWindow()
     {
-    InitializeComponent();
-    // Ensure the window can receive key events
+        InitializeComponent();
+        // Ensure the window can receive key events
         Focusable = true;
+        
+        // Load or prompt for client ID
+        _clientId = LoadOrPromptForClientId();
+        
+        // Set URLs with clientId - Production Vercel URLs
+        _serverUrl = $"https://chat-bot-final-b1uz.vercel.app/events?clientId={Uri.EscapeDataString(_clientId)}&source=windows";
+        _chatApiUrl = $"https://chat-bot-final-b1uz.vercel.app/api/chat?clientId={Uri.EscapeDataString(_clientId)}";
         
         _httpClient = new HttpClient();
         _httpClient.Timeout = TimeSpan.FromMilliseconds(Timeout.Infinite);
+        
+        // Add clientId header to all requests
+        _httpClient.DefaultRequestHeaders.Add("X-Client-ID", _clientId);
         
         // Initialize conversation with system prompt (detailed mode by default)
         _conversation.Add(new
@@ -163,6 +174,136 @@ def function_name(params):
                 InputTextBox.Text = "Type your question here...";
             }
         };
+    }
+    
+    private string LoadOrPromptForClientId()
+    {
+        // ALWAYS prompt for username on every launch (no persistence)
+        // This ensures fresh session and allows matching with web app
+        
+        // Prompt user for username
+        string username = PromptForUsername();
+        
+        return username;
+    }
+    
+    private string PromptForUsername()
+    {
+        while (true)
+        {
+            // Create input dialog
+            var inputWindow = new Window
+            {
+                Title = "Set Username",
+                Width = 400,
+                Height = 200,
+                WindowStartupLocation = WindowStartupLocation.CenterScreen,
+                ResizeMode = ResizeMode.NoResize,
+                WindowStyle = WindowStyle.SingleBorderWindow,
+                Topmost = true
+            };
+            
+            var grid = new System.Windows.Controls.Grid();
+            grid.RowDefinitions.Add(new System.Windows.Controls.RowDefinition { Height = new GridLength(1, GridUnitType.Auto) });
+            grid.RowDefinitions.Add(new System.Windows.Controls.RowDefinition { Height = new GridLength(1, GridUnitType.Auto) });
+            grid.RowDefinitions.Add(new System.Windows.Controls.RowDefinition { Height = new GridLength(1, GridUnitType.Auto) });
+            grid.RowDefinitions.Add(new System.Windows.Controls.RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+            grid.Margin = new Thickness(20);
+            
+            var titleText = new System.Windows.Controls.TextBlock
+            {
+                Text = "👤 Set Your Username",
+                FontSize = 18,
+                FontWeight = FontWeights.Bold,
+                Margin = new Thickness(0, 0, 0, 10)
+            };
+            System.Windows.Controls.Grid.SetRow(titleText, 0);
+            grid.Children.Add(titleText);
+            
+            var descText = new System.Windows.Controls.TextBlock
+            {
+                Text = "Enter a username to have your own private chat session.\nYou can use letters and numbers (e.g., john123)",
+                FontSize = 12,
+                Foreground = System.Windows.Media.Brushes.Gray,
+                TextWrapping = TextWrapping.Wrap,
+                Margin = new Thickness(0, 0, 0, 15)
+            };
+            System.Windows.Controls.Grid.SetRow(descText, 1);
+            grid.Children.Add(descText);
+            
+            var inputBox = new System.Windows.Controls.TextBox
+            {
+                FontSize = 14,
+                Padding = new Thickness(8),
+                MaxLength = 20,
+                Margin = new Thickness(0, 0, 0, 15)
+            };
+            System.Windows.Controls.Grid.SetRow(inputBox, 2);
+            grid.Children.Add(inputBox);
+            
+            var buttonPanel = new System.Windows.Controls.StackPanel
+            {
+                Orientation = System.Windows.Controls.Orientation.Horizontal,
+                HorizontalAlignment = HorizontalAlignment.Right
+            };
+            System.Windows.Controls.Grid.SetRow(buttonPanel, 3);
+            
+            var okButton = new System.Windows.Controls.Button
+            {
+                Content = "OK",
+                Width = 80,
+                Height = 30,
+                Margin = new Thickness(5, 0, 0, 0)
+            };
+            
+            bool dialogResult = false;
+            okButton.Click += (s, e) => { dialogResult = true; inputWindow.Close(); };
+            inputBox.KeyDown += (s, e) => { if (e.Key == Key.Enter) { dialogResult = true; inputWindow.Close(); } };
+            
+            // Prevent closing without entering username
+            inputWindow.Closing += (s, e) => 
+            {
+                if (!dialogResult)
+                {
+                    e.Cancel = true; // Don't allow closing without OK
+                }
+            };
+            
+            buttonPanel.Children.Add(okButton);
+            grid.Children.Add(buttonPanel);
+            
+            inputWindow.Content = grid;
+            inputWindow.ShowDialog();
+            
+            if (!dialogResult)
+            {
+                // Should never reach here due to Closing event handler
+                continue;
+            }
+            
+            string username = inputBox.Text.Trim().ToLower();
+            
+            // Validate username
+            if (string.IsNullOrWhiteSpace(username))
+            {
+                MessageBox.Show("Please enter a username.", "Invalid Username", MessageBoxButton.OK, MessageBoxImage.Warning);
+                continue;
+            }
+            
+            if (!System.Text.RegularExpressions.Regex.IsMatch(username, "^[a-z0-9]+$"))
+            {
+                MessageBox.Show("Username can only contain letters and numbers (no spaces or special characters).", "Invalid Username", MessageBoxButton.OK, MessageBoxImage.Warning);
+                continue;
+            }
+            
+            if (username.Length < 3)
+            {
+                MessageBox.Show("Username must be at least 3 characters long.", "Invalid Username", MessageBoxButton.OK, MessageBoxImage.Warning);
+                continue;
+            }
+            
+            return username;
+        }
     }
 
     private void Window_Loaded(object sender, RoutedEventArgs e)

@@ -8,33 +8,95 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-// Simple Server-Sent Events (SSE) clients list for broadcasting chat events to the web UI
-const sseClients = [];
+// Configuration: Enable strict username matching validation
+// Set to false to allow any username to connect to any session
+const STRICT_USERNAME_VALIDATION = false; // Can be changed to true for strict mode
+
+// Client-specific conversation storage
+// Map: clientId -> { clients: [SSE responses], conversation: [messages], activeUsernames: Set }
+const clientSessions = new Map();
+
+// Legacy SSE clients list (for backward compatibility with clients that don't send clientId)
+const legacySseClients = [];
 
 app.get('/events', (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache');
   res.setHeader('Connection', 'keep-alive');
   res.flushHeaders && res.flushHeaders();
-  // send a comment to keep the connection alive in some proxies
   res.write(': connected\n\n');
-  sseClients.push(res);
-  console.log(`SSE client connected. Total clients: ${sseClients.length}`);
-  req.on('close', () => {
-    const idx = sseClients.indexOf(res);
-    if (idx !== -1) sseClients.splice(idx, 1);
-    console.log(`SSE client disconnected. Total clients: ${sseClients.length}`);
-  });
+  
+  const clientId = req.query.clientId || req.headers['x-client-id'];
+  
+  if (clientId) {
+    // Client-specific session
+    if (!clientSessions.has(clientId)) {
+      clientSessions.set(clientId, {
+        clients: [],
+        conversation: [], // Will be initialized with system prompt on first chat
+        sources: new Set() // Track connection sources (web, windows)
+      });
+    }
+    const session = clientSessions.get(clientId);
+    
+    // Track connection source from query param or header
+    const source = req.query.source || req.headers['x-source'] || 'unknown';
+    session.sources.add(source);
+    
+    session.clients.push(res);
+    console.log(`SSE client connected with ID: ${clientId}, source: ${source}. Session clients: ${session.clients.length}`);
+    
+    req.on('close', () => {
+      const idx = session.clients.indexOf(res);
+      if (idx !== -1) session.clients.splice(idx, 1);
+      console.log(`SSE client disconnected. ID: ${clientId}. Session clients: ${session.clients.length}`);
+      
+      // Clean up empty sessions after 5 minutes
+      if (session.clients.length === 0) {
+        setTimeout(() => {
+          if (clientSessions.has(clientId) && clientSessions.get(clientId).clients.length === 0) {
+            clientSessions.delete(clientId);
+            console.log(`Cleaned up empty session: ${clientId}`);
+          }
+        }, 5 * 60 * 1000);
+      }
+    });
+  } else {
+    // Legacy mode - no clientId
+    legacySseClients.push(res);
+    console.log(`SSE client connected (legacy). Total clients: ${legacySseClients.length}`);
+    
+    req.on('close', () => {
+      const idx = legacySseClients.indexOf(res);
+      if (idx !== -1) legacySseClients.splice(idx, 1);
+      console.log(`SSE client disconnected (legacy). Total clients: ${legacySseClients.length}`);
+    });
+  }
 });
 
-function broadcastEvent(obj) {
+function broadcastEvent(obj, clientId = null) {
   const payload = `data: ${JSON.stringify(obj)}\n\n`;
-  console.log(`Broadcasting to ${sseClients.length} clients:`, JSON.stringify(obj).substring(0, 100));
-  for (const client of sseClients) {
-    try {
-      client.write(payload);
-    } catch (e) {
-      console.error('Failed to write to SSE client:', e.message);
+  
+  if (clientId && clientSessions.has(clientId)) {
+    // Broadcast to specific client session
+    const session = clientSessions.get(clientId);
+    console.log(`Broadcasting to client ${clientId} (${session.clients.length} connections):`, JSON.stringify(obj).substring(0, 100));
+    for (const client of session.clients) {
+      try {
+        client.write(payload);
+      } catch (e) {
+        console.error(`Failed to write to SSE client ${clientId}:`, e.message);
+      }
+    }
+  } else {
+    // Broadcast to all legacy clients (backward compatibility)
+    console.log(`Broadcasting to ${legacySseClients.length} legacy clients:`, JSON.stringify(obj).substring(0, 100));
+    for (const client of legacySseClients) {
+      try {
+        client.write(payload);
+      } catch (e) {
+        console.error('Failed to write to legacy SSE client:', e.message);
+      }
     }
   }
 }
@@ -92,6 +154,9 @@ app.post('/api/chat', async (req, res) => {
     return res.status(400).json({ error: 'messages must be an array' });
   }
 
+  // Extract clientId from headers or query
+  const clientId = req.query.clientId || req.headers['x-client-id'];
+
   // Check if this request is from the web UI or external source (Python script)
   const isWebUI = req.headers['x-source'] === 'web-ui';
 
@@ -146,9 +211,9 @@ What would you like to learn about today?`;
 
       // Broadcast greeting exchange
       if (lastUser) {
-        broadcastEvent({ role: 'user', type: 'user', content: lastUser.content });
+        broadcastEvent({ role: 'user', type: 'user', content: lastUser.content }, clientId);
       }
-      broadcastEvent({ role: 'assistant', type: 'complete', content: greetingResponse, isStreaming: false });
+      broadcastEvent({ role: 'assistant', type: 'complete', content: greetingResponse, isStreaming: false }, clientId);
 
       return res.json({
         id: 'greeting-' + Date.now(),
@@ -196,7 +261,7 @@ What would you like to learn about today?`;
 
     // Broadcast user message first
     if (lastUser) {
-      broadcastEvent({ role: 'user', type: 'user', content: lastUser.content });
+      broadcastEvent({ role: 'user', type: 'user', content: lastUser.content }, clientId);
     }
 
     // Stream the response chunks in real-time
@@ -237,15 +302,23 @@ What would you like to learn about today?`;
             const delta = parsed?.choices?.[0]?.delta?.content;
             
             if (delta) {
-              fullResponse += delta;
+              // Filter out special tokens like <s>, </s>, <|endoftext|>, etc.
+              // DON'T use .trim() here - it removes important line breaks and spacing
+              const filteredDelta = delta.replace(/<\/?s>|<\|endoftext\|>|<\|im_start\|>|<\|im_end\|>/g, '');
               
-              // Broadcast each chunk immediately to SSE clients (Windows app)
-              broadcastEvent({ 
-                role: 'assistant', 
-                type: 'chunk',  // Mark as streaming chunk
-                content: delta,
-                isStreaming: true
-              });
+              // Only add and broadcast if there's actual content after filtering
+              // Check for content without trimming to preserve formatting
+              if (filteredDelta && filteredDelta.length > 0) {
+                fullResponse += filteredDelta;
+                
+                // Broadcast each chunk immediately to SSE clients (Windows app)
+                broadcastEvent({ 
+                  role: 'assistant', 
+                  type: 'chunk',  // Mark as streaming chunk
+                  content: filteredDelta,
+                  isStreaming: true
+                }, clientId);
+              }
             }
           } catch (e) {
             console.warn('Failed to parse streaming chunk:', e.message);
@@ -265,15 +338,45 @@ What would you like to learn about today?`;
       throw new Error(streamError);
     }
 
-    // Broadcast final complete message
-    if (fullResponse) {
+    // Clean up the full response - filter tokens again and trim only leading/trailing whitespace
+    // Apply final token filter to catch any that slipped through
+    let cleanedResponse = fullResponse.replace(/<\/?s>|<\|endoftext\|>|<\|im_start\|>|<\|im_end\|>/g, '').trim();
+    
+    // If response is empty after filtering tokens, provide helpful message
+    if (!cleanedResponse || cleanedResponse.length === 0) {
+      console.warn('Empty response received from OpenRouter after token filtering');
+      const fallbackMessage = "I apologize, but I didn't generate a proper response. Please try asking your question again, or rephrase it slightly.";
+      
       broadcastEvent({ 
         role: 'assistant', 
-        type: 'complete',  // Mark as final complete message
-        content: fullResponse,
+        type: 'complete',
+        content: fallbackMessage,
         isStreaming: false
+      }, clientId);
+      
+      return res.json({
+        id: 'stream-' + Date.now(),
+        object: 'chat.completion',
+        created: Math.floor(Date.now() / 1000),
+        model: OPENROUTER_MODEL,
+        choices: [{
+          index: 0,
+          message: {
+            role: 'assistant',
+            content: fallbackMessage
+          },
+          finish_reason: 'stop'
+        }]
       });
     }
+
+    // Broadcast final complete message
+    broadcastEvent({ 
+      role: 'assistant', 
+      type: 'complete',  // Mark as final complete message
+      content: cleanedResponse,
+      isStreaming: false
+    }, clientId);
 
     // Return standard chat completion format for compatibility
     const responseData = {
@@ -285,7 +388,7 @@ What would you like to learn about today?`;
         index: 0,
         message: {
           role: 'assistant',
-          content: fullResponse
+          content: cleanedResponse
         },
         finish_reason: 'stop'
       }]
