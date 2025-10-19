@@ -490,14 +490,16 @@ Generate 5-7 questions per category. Questions must be specific to the resume/jo
           { role: 'system', content: systemPrompt },
           { role: 'user', content: userPrompt }
         ],
-        max_tokens: 6000,
+        max_tokens: 4000,
         temperature: 0.7,
         top_p: 0.95
       },
       {
         headers: {
           'Authorization': `Bearer ${OPENROUTER_API_KEY}`,
-          'Content-Type': 'application/json'
+          'Content-Type': 'application/json',
+          'HTTP-Referer': 'http://localhost:3000',
+          'X-Title': 'SkillSpeak Interview Generator'
         },
         timeout: 60000 // 60 second timeout
       }
@@ -510,6 +512,11 @@ Generate 5-7 questions per category. Questions must be specific to the resume/jo
       hasMessage: !!response.data?.choices?.[0]?.message,
       hasContent: !!response.data?.choices?.[0]?.message?.content
     });
+
+    // Log the full response for debugging
+    console.log('=== FULL API RESPONSE ===');
+    console.log(JSON.stringify(response.data, null, 2));
+    console.log('========================');
 
     if (!response.data?.choices?.[0]?.message?.content) {
       console.error('Empty response from API!');
@@ -717,6 +724,184 @@ Return only the answer text, no JSON, no formatting.`;
   } catch (error) {
     console.error('Error in answer generation:', error);
     res.status(500).json({ error: 'Failed to generate answers' });
+  }
+});
+
+// ============================================
+// INTERVIEWER RATING DASHBOARD ENDPOINTS
+// ============================================
+
+// In-memory storage for question ratings
+// Structure: { sessionId: { questions: [...], ratings: { questionIndex: rating } } }
+const ratingSessions = new Map();
+
+// Endpoint: Save ratings for questions
+app.post('/api/save-ratings', (req, res) => {
+  try {
+    const { sessionId, ratings } = req.body;
+    
+    if (!sessionId || !ratings) {
+      return res.status(400).json({ error: 'Session ID and ratings are required' });
+    }
+    
+    if (!ratingSessions.has(sessionId)) {
+      ratingSessions.set(sessionId, { questions: [], ratings: {} });
+    }
+    
+    const session = ratingSessions.get(sessionId);
+    
+    // Update ratings (merge with existing)
+    Object.keys(ratings).forEach(questionIndex => {
+      session.ratings[questionIndex] = ratings[questionIndex];
+    });
+    
+    console.log(`Saved ratings for session ${sessionId}:`, session.ratings);
+    
+    res.json({ 
+      success: true, 
+      message: 'Ratings saved successfully',
+      totalRated: Object.keys(session.ratings).length
+    });
+    
+  } catch (error) {
+    console.error('Error saving ratings:', error);
+    res.status(500).json({ error: 'Failed to save ratings' });
+  }
+});
+
+// Endpoint: Store generated questions for a session
+app.post('/api/store-questions', (req, res) => {
+  try {
+    const { sessionId, questions } = req.body;
+    
+    if (!sessionId || !questions) {
+      return res.status(400).json({ error: 'Session ID and questions are required' });
+    }
+    
+    if (!ratingSessions.has(sessionId)) {
+      ratingSessions.set(sessionId, { questions: [], ratings: {} });
+    }
+    
+    const session = ratingSessions.get(sessionId);
+    session.questions = questions;
+    
+    console.log(`Stored ${questions.length} questions for session ${sessionId}`);
+    
+    res.json({ 
+      success: true, 
+      message: 'Questions stored successfully',
+      totalQuestions: questions.length
+    });
+    
+  } catch (error) {
+    console.error('Error storing questions:', error);
+    res.status(500).json({ error: 'Failed to store questions' });
+  }
+});
+
+// Endpoint: Get rating report
+app.get('/api/rating-report/:sessionId', (req, res) => {
+  try {
+    const { sessionId } = req.params;
+    
+    if (!ratingSessions.has(sessionId)) {
+      return res.status(404).json({ error: 'Session not found' });
+    }
+    
+    const session = ratingSessions.get(sessionId);
+    const { questions, ratings } = session;
+    
+    // Calculate overall statistics
+    const totalQuestions = questions.length;
+    const ratedQuestions = Object.keys(ratings).length;
+    const ratingValues = Object.values(ratings);
+    
+    let overallAverage = 0;
+    if (ratedQuestions > 0) {
+      const sum = ratingValues.reduce((acc, rating) => acc + rating, 0);
+      overallAverage = (sum / ratedQuestions).toFixed(2);
+    }
+    
+    // Calculate level-based statistics
+    const levelStats = {};
+    
+    questions.forEach((q, index) => {
+      const level = q.difficulty || q.level || 'Unknown';
+      const rating = ratings[index];
+      
+      if (!levelStats[level]) {
+        levelStats[level] = {
+          total: 0,
+          rated: 0,
+          sumRatings: 0,
+          average: 0
+        };
+      }
+      
+      levelStats[level].total++;
+      
+      if (rating !== undefined) {
+        levelStats[level].rated++;
+        levelStats[level].sumRatings += rating;
+      }
+    });
+    
+    // Calculate averages for each level
+    Object.keys(levelStats).forEach(level => {
+      const stats = levelStats[level];
+      if (stats.rated > 0) {
+        stats.average = (stats.sumRatings / stats.rated).toFixed(2);
+      }
+    });
+    
+    // Create detailed report
+    const report = {
+      sessionId,
+      summary: {
+        totalQuestions,
+        totalRated: ratedQuestions,
+        overallAverage: parseFloat(overallAverage),
+        ratingPercentage: totalQuestions > 0 ? ((ratedQuestions / totalQuestions) * 100).toFixed(1) : 0
+      },
+      levelBreakdown: levelStats,
+      questions: questions.map((q, index) => ({
+        ...q,
+        index,
+        rating: ratings[index] || null,
+        isRated: ratings[index] !== undefined
+      }))
+    };
+    
+    res.json(report);
+    
+  } catch (error) {
+    console.error('Error generating report:', error);
+    res.status(500).json({ error: 'Failed to generate report' });
+  }
+});
+
+// Endpoint: Get all sessions (for dashboard listing)
+app.get('/api/rating-sessions', (req, res) => {
+  try {
+    const sessions = [];
+    
+    ratingSessions.forEach((data, sessionId) => {
+      const ratedCount = Object.keys(data.ratings).length;
+      sessions.push({
+        sessionId,
+        totalQuestions: data.questions.length,
+        totalRated: ratedCount,
+        progress: data.questions.length > 0 
+          ? ((ratedCount / data.questions.length) * 100).toFixed(1)
+          : 0
+      });
+    });
+    
+    res.json({ sessions });
+    
+  } catch (error) {
+    console.error('Error fetching sessions:', error);
+    res.status(500).json({ error: 'Failed to fetch sessions' });
   }
 });
 

@@ -773,9 +773,15 @@ document.querySelectorAll('.nav-tab').forEach(tab => {
     if (section === 'chat') {
       document.getElementById('chat-section').classList.add('active');
       document.getElementById('interview-generator').classList.remove('active');
+      document.getElementById('rating-section').classList.remove('active');
     } else if (section === 'interview') {
       document.getElementById('chat-section').classList.remove('active');
       document.getElementById('interview-generator').classList.add('active');
+      document.getElementById('rating-section').classList.remove('active');
+    } else if (section === 'rating') {
+      document.getElementById('chat-section').classList.remove('active');
+      document.getElementById('interview-generator').classList.remove('active');
+      document.getElementById('rating-section').classList.add('active');
     }
   });
 });
@@ -1028,6 +1034,14 @@ function displayResults(data) {
   
   // Scroll to results
   resultsContainer.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  
+  // Initialize rating dashboard with all generated questions
+  const allQuestions = [
+    ...data.questions.basic.map(q => ({ ...q, category: 'Basic' })),
+    ...data.questions.advanced.map(q => ({ ...q, category: 'Advanced' })),
+    ...data.questions.scenario.map(q => ({ ...q, category: 'Scenario' }))
+  ];
+  initializeRatingDashboard(allQuestions);
 }
 
 // Render questions for a category
@@ -1359,6 +1373,288 @@ function downloadQuestionsAndAnswers() {
 
   console.log('Downloaded Q&A document');
 }
+
+// ============================================
+// RATING DASHBOARD FUNCTIONALITY
+// ============================================
+
+let currentSessionId = null;
+let sessionRatings = {};
+
+// Initialize rating dashboard when questions are generated
+function initializeRatingDashboard(questions) {
+  currentSessionId = 'session_' + Date.now();
+  sessionRatings = {};
+  
+  // Store questions on server
+  fetch('/api/store-questions', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      sessionId: currentSessionId,
+      questions: questions
+    })
+  }).then(res => res.json())
+    .then(data => {
+      console.log('Questions stored for rating:', data);
+      updateSessionInfo(questions.length);
+    })
+    .catch(err => console.error('Failed to store questions:', err));
+  
+  // Render questions in rating dashboard
+  renderRatingQuestions(questions);
+}
+
+function updateSessionInfo(totalQuestions) {
+  const sessionInfo = document.getElementById('session-info');
+  if (sessionInfo) {
+    sessionInfo.textContent = `Session ID: ${currentSessionId} | Total Questions: ${totalQuestions}`;
+  }
+}
+
+function renderRatingQuestions(questions) {
+  const container = document.getElementById('questions-rating-list');
+  if (!container) return;
+  
+  container.innerHTML = '';
+  
+  questions.forEach((q, index) => {
+    const div = document.createElement('div');
+    div.className = 'rating-question-item';
+    div.innerHTML = `
+      <div class="rating-question-header">
+        <span style="font-weight: 600; color: #667eea;">Question ${index + 1}</span>
+        <span style="font-size: 12px; color: #666;">
+          ${q.category || q.focusArea || 'General'} | 
+          Level: ${q.difficulty || q.level || 'Unknown'}
+        </span>
+      </div>
+      <div class="rating-question-text">${q.question}</div>
+      ${q.reasoning ? `<div style="font-size: 14px; color: #666; margin-top: 8px;">💭 ${q.reasoning}</div>` : ''}
+      <div class="rating-stars" data-index="${index}">
+        ${[1, 2, 3, 4, 5].map(star => `
+          <span class="star empty" data-star="${star}" onclick="rateQuestion(${index}, ${star})">⭐</span>
+        `).join('')}
+      </div>
+      <div style="margin-top: 8px; font-size: 14px; color: #764ba2; font-weight: 600;" id="rating-display-${index}">
+        Not rated yet
+      </div>
+    `;
+    container.appendChild(div);
+  });
+  
+  // Show action buttons
+  document.getElementById('rating-actions').style.display = 'flex';
+}
+
+function rateQuestion(questionIndex, rating) {
+  // Update rating
+  sessionRatings[questionIndex] = rating;
+  
+  // Update stars display
+  const starsContainer = document.querySelector(`.rating-stars[data-index="${questionIndex}"]`);
+  if (starsContainer) {
+    const stars = starsContainer.querySelectorAll('.star');
+    stars.forEach((star, index) => {
+      if (index < rating) {
+        star.classList.remove('empty');
+        star.classList.add('filled');
+      } else {
+        star.classList.remove('filled');
+        star.classList.add('empty');
+      }
+    });
+  }
+  
+  // Update rating display text
+  const display = document.getElementById(`rating-display-${questionIndex}`);
+  if (display) {
+    display.textContent = `Rated: ${'⭐'.repeat(rating)} (${rating}/5)`;
+    display.style.color = '#fbbf24';
+  }
+  
+  console.log(`Question ${questionIndex} rated: ${rating} stars`);
+}
+
+function saveRatings() {
+  if (!currentSessionId) {
+    alert('No active session. Please generate questions first.');
+    return;
+  }
+  
+  const ratedCount = Object.keys(sessionRatings).length;
+  if (ratedCount === 0) {
+    alert('Please rate at least one question before saving.');
+    return;
+  }
+  
+  fetch('/api/save-ratings', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      sessionId: currentSessionId,
+      ratings: sessionRatings
+    })
+  })
+  .then(res => res.json())
+  .then(data => {
+    alert(`✅ Ratings saved successfully!\n\nTotal questions rated: ${data.totalRated}`);
+    console.log('Ratings saved:', data);
+  })
+  .catch(err => {
+    alert('❌ Failed to save ratings. Please try again.');
+    console.error('Error saving ratings:', err);
+  });
+}
+
+function generateReport() {
+  if (!currentSessionId) {
+    alert('No active session. Please generate questions first.');
+    return;
+  }
+  
+  fetch(`/api/rating-report/${currentSessionId}`)
+    .then(res => res.json())
+    .then(data => {
+      displayReport(data);
+    })
+    .catch(err => {
+      alert('❌ Failed to generate report. Please try again.');
+      console.error('Error generating report:', err);
+    });
+}
+
+function displayReport(report) {
+  // Update summary stats
+  document.getElementById('report-total').textContent = report.summary.totalQuestions;
+  document.getElementById('report-rated').textContent = report.summary.totalRated;
+  document.getElementById('report-average').textContent = report.summary.overallAverage.toFixed(2);
+  document.getElementById('report-progress').textContent = report.summary.ratingPercentage + '%';
+  
+  // Display level breakdown
+  const levelStatsContainer = document.getElementById('level-stats');
+  levelStatsContainer.innerHTML = '';
+  
+  Object.keys(report.levelBreakdown).forEach(level => {
+    const stats = report.levelBreakdown[level];
+    const div = document.createElement('div');
+    div.className = 'level-stat-item';
+    div.innerHTML = `
+      <div>
+        <span class="level-name">${level}</span>
+        <span style="margin-left: 12px; color: #666;">
+          (${stats.rated}/${stats.total} rated)
+        </span>
+      </div>
+      <div class="level-average">
+        ${stats.average > 0 ? '⭐ ' + stats.average : 'Not rated'}
+      </div>
+    `;
+    levelStatsContainer.appendChild(div);
+  });
+  
+  // Display detailed question list
+  const detailedList = document.getElementById('detailed-list');
+  detailedList.innerHTML = '';
+  
+  report.questions.forEach((q, index) => {
+    const div = document.createElement('div');
+    div.className = 'detail-question-item';
+    div.innerHTML = `
+      <div style="display: flex; justify-content: space-between; align-items: start;">
+        <div style="flex: 1;">
+          <strong>Q${index + 1}:</strong> ${q.question}
+          <div style="font-size: 12px; color: #666; margin-top: 4px;">
+            ${q.category || q.focusArea} | Level: ${q.difficulty || q.level}
+          </div>
+        </div>
+        <div class="detail-rating">
+          ${q.isRated ? '⭐'.repeat(q.rating) + ` (${q.rating}/5)` : '❌ Not rated'}
+        </div>
+      </div>
+    `;
+    detailedList.appendChild(div);
+  });
+  
+  // Show report
+  document.getElementById('rating-report').style.display = 'block';
+  
+  // Scroll to report
+  document.getElementById('rating-report').scrollIntoView({ behavior: 'smooth' });
+}
+
+function downloadReport() {
+  if (!currentSessionId) {
+    alert('No report to download.');
+    return;
+  }
+  
+  fetch(`/api/rating-report/${currentSessionId}`)
+    .then(res => res.json())
+    .then(report => {
+      let content = '📊 INTERVIEWER RATING REPORT\n';
+      content += '='.repeat(60) + '\n\n';
+      
+      content += `Session ID: ${report.sessionId}\n`;
+      content += `Generated on: ${new Date().toLocaleString()}\n\n`;
+      
+      content += '📈 OVERALL SUMMARY\n';
+      content += '-'.repeat(60) + '\n';
+      content += `Total Questions: ${report.summary.totalQuestions}\n`;
+      content += `Questions Rated: ${report.summary.totalRated}\n`;
+      content += `Overall Average Rating: ${report.summary.overallAverage}/5.0 ⭐\n`;
+      content += `Rating Progress: ${report.summary.ratingPercentage}%\n\n`;
+      
+      content += '📊 BREAKDOWN BY DIFFICULTY LEVEL\n';
+      content += '-'.repeat(60) + '\n';
+      Object.keys(report.levelBreakdown).forEach(level => {
+        const stats = report.levelBreakdown[level];
+        content += `${level}:\n`;
+        content += `  - Total: ${stats.total} questions\n`;
+        content += `  - Rated: ${stats.rated} questions\n`;
+        content += `  - Average: ${stats.average > 0 ? stats.average + '/5.0 ⭐' : 'Not rated'}\n\n`;
+      });
+      
+      content += '📝 DETAILED QUESTION RATINGS\n';
+      content += '-'.repeat(60) + '\n\n';
+      report.questions.forEach((q, index) => {
+        content += `Question ${index + 1}:\n`;
+        content += `${q.question}\n`;
+        content += `Category: ${q.category || q.focusArea}\n`;
+        content += `Level: ${q.difficulty || q.level}\n`;
+        content += `Rating: ${q.isRated ? '⭐'.repeat(q.rating) + ` (${q.rating}/5)` : 'Not rated'}\n`;
+        content += '\n' + '-'.repeat(60) + '\n\n';
+      });
+      
+      // Download
+      const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `Rating_Report_${currentSessionId}.txt`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      
+      console.log('Downloaded rating report');
+    })
+    .catch(err => {
+      alert('❌ Failed to download report.');
+      console.error('Error downloading report:', err);
+    });
+}
+
+function clearReport() {
+  document.getElementById('rating-report').style.display = 'none';
+}
+
+// Expose functions globally
+window.rateQuestion = rateQuestion;
+window.saveRatings = saveRatings;
+window.generateReport = generateReport;
+window.downloadReport = downloadReport;
+window.clearReport = clearReport;
 
 window.exportToPDF = exportToPDF;
 window.startNewGeneration = startNewGeneration;
