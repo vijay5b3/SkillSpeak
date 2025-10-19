@@ -238,24 +238,57 @@ let isRecording = false;
 
 // Toggle mode function
 function toggleMode() {
+  // Ask for confirmation if there are messages (excluding system prompt)
+  if (conversation.length > 1) {
+    const confirmSwitch = confirm(
+      `⚠️ Switching Response Style\n\n` +
+      `Current: ${isSimpleMode ? '💡 Simple (Quick answers)' : '📚 Detailed (Long explanations)'}\n` +
+      `Switch to: ${isSimpleMode ? '📚 Detailed (Long explanations)' : '💡 Simple (Quick answers)'}\n\n` +
+      `This will clear your current chat to avoid confusion.\n\n` +
+      `Click OK to switch, or Cancel to keep current mode.`
+    );
+    
+    if (!confirmSwitch) {
+      return; // User cancelled
+    }
+  }
+  
+  // Toggle the mode
   isSimpleMode = !isSimpleMode;
   
-  // Update button appearance and text
+  // Update button appearance and text (removed "Mode" suffix)
   if (isSimpleMode) {
-    toggleModeBtn.textContent = '💡 Simple Mode';
+    toggleModeBtn.textContent = '💡 Simple';
     toggleModeBtn.classList.add('simple-mode');
-    toggleModeBtn.title = 'Currently in Simple Mode - Click for Detailed Mode';
-    document.body.classList.add('simple-mode'); // Add theme class to body
+    toggleModeBtn.title = '💡 Simple: Quick answers in bullet points\n📚 Click to switch to Detailed (clears chat)';
+    document.body.classList.add('simple-mode');
     // Update system prompt
     conversation[0].content = simpleSystemPrompt;
   } else {
-    toggleModeBtn.textContent = '📚 Detailed Mode';
+    toggleModeBtn.textContent = '📚 Detailed';
     toggleModeBtn.classList.remove('simple-mode');
-    toggleModeBtn.title = 'Currently in Detailed Mode - Click for Simple Mode';
-    document.body.classList.remove('simple-mode'); // Remove theme class from body
+    toggleModeBtn.title = '📚 Detailed: Long explanations with examples\n💡 Click to switch to Simple (clears chat)';
+    document.body.classList.remove('simple-mode');
     // Update system prompt
     conversation[0].content = detailedSystemPrompt;
   }
+  
+  // Clear the chat (keep only system prompt)
+  conversation.splice(1); // Remove all except system prompt
+  messagesEl.innerHTML = ''; // Clear UI
+  
+  // Add welcome message for the new mode
+  const welcomeMsg = document.createElement('div');
+  welcomeMsg.className = 'msg';
+  welcomeMsg.innerHTML = `
+    <div class="assistant">
+      <strong>Mode switched to ${isSimpleMode ? '💡 Simple' : '📚 Detailed'}</strong><br><br>
+      ${isSimpleMode 
+        ? '✅ You\'ll now get <strong>quick, concise answers</strong> in bullet points and numbered steps.<br>Perfect for fast learning!' 
+        : '✅ You\'ll now get <strong>comprehensive explanations</strong> with examples and detailed breakdowns.<br>Perfect for deep understanding!'}
+    </div>
+  `;
+  messagesEl.appendChild(welcomeMsg);
   
   // Show notification
   const notification = document.createElement('div');
@@ -266,23 +299,24 @@ function toggleMode() {
     transform: translateX(-50%);
     background: linear-gradient(135deg, ${isSimpleMode ? 'rgba(245, 158, 11, 0.95) 0%, rgba(217, 119, 6, 0.95) 100%' : 'rgba(16, 185, 129, 0.95) 0%, rgba(5, 150, 105, 0.95) 100%'});
     color: white;
-    padding: 12px 24px;
+    padding: 14px 28px;
     border-radius: 24px;
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
     z-index: 1000;
     font-weight: 600;
+    font-size: 15px;
     animation: slideDown 0.3s ease-out;
   `;
   notification.textContent = isSimpleMode 
-    ? '💡 Simple Mode: Short definitions & numbered steps' 
-    : '📚 Detailed Mode: Comprehensive explanations';
+    ? '💡 Simple Mode Active: Quick & concise answers' 
+    : '📚 Detailed Mode Active: Comprehensive explanations';
   
   document.body.appendChild(notification);
   
   setTimeout(() => {
     notification.style.animation = 'slideUp 0.3s ease-out';
     setTimeout(() => notification.remove(), 300);
-  }, 2000);
+  }, 3000);
 }
 
 // Add event listener for toggle button
@@ -721,3 +755,615 @@ function reconnectSSE() {
 
 // Initial SSE connection
 connectSSE();
+
+/* ==========================================
+   INTERVIEW GENERATOR FUNCTIONALITY
+   ========================================== */
+
+// Navigation between Chat and Interview sections
+document.querySelectorAll('.nav-tab').forEach(tab => {
+  tab.addEventListener('click', () => {
+    const section = tab.dataset.section;
+    
+    // Update tabs
+    document.querySelectorAll('.nav-tab').forEach(t => t.classList.remove('active'));
+    tab.classList.add('active');
+    
+    // Update sections
+    if (section === 'chat') {
+      document.getElementById('chat-section').classList.add('active');
+      document.getElementById('interview-generator').classList.remove('active');
+    } else if (section === 'interview') {
+      document.getElementById('chat-section').classList.remove('active');
+      document.getElementById('interview-generator').classList.add('active');
+    }
+  });
+});
+
+// File upload handling
+let resumeFile = null;
+let jdFile = null;
+
+// Resume file upload
+const resumeInput = document.getElementById('resume-file');
+const resumeZone = document.getElementById('resume-upload-zone');
+const resumeSelected = document.getElementById('resume-selected');
+const resumeFilename = document.getElementById('resume-filename');
+
+resumeZone.addEventListener('click', () => resumeInput.click());
+
+resumeInput.addEventListener('change', (e) => {
+  const file = e.target.files[0];
+  if (file) {
+    if (validateFile(file, ['pdf', 'docx'], 5)) {
+      resumeFile = file;
+      resumeFilename.textContent = file.name;
+      resumeSelected.classList.add('show');
+    }
+  }
+});
+
+// Drag and drop for resume
+resumeZone.addEventListener('dragover', (e) => {
+  e.preventDefault();
+  resumeZone.classList.add('drag-over');
+});
+
+resumeZone.addEventListener('dragleave', () => {
+  resumeZone.classList.remove('drag-over');
+});
+
+resumeZone.addEventListener('drop', (e) => {
+  e.preventDefault();
+  resumeZone.classList.remove('drag-over');
+  const file = e.dataTransfer.files[0];
+  if (file && validateFile(file, ['pdf', 'docx'], 5)) {
+    resumeFile = file;
+    resumeInput.files = e.dataTransfer.files;
+    resumeFilename.textContent = file.name;
+    resumeSelected.classList.add('show');
+  }
+});
+
+// Job Description file upload
+const jdInput = document.getElementById('jd-file');
+const jdZone = document.getElementById('jd-upload-zone');
+const jdSelected = document.getElementById('jd-selected');
+const jdFilename = document.getElementById('jd-filename');
+
+jdZone.addEventListener('click', () => jdInput.click());
+
+jdInput.addEventListener('change', (e) => {
+  const file = e.target.files[0];
+  if (file) {
+    if (validateFile(file, ['pdf', 'docx', 'txt'], 5)) {
+      jdFile = file;
+      jdFilename.textContent = file.name;
+      jdSelected.classList.add('show');
+      // Clear textarea when file is selected
+      document.getElementById('job-description').value = '';
+    }
+  }
+});
+
+// Drag and drop for JD
+jdZone.addEventListener('dragover', (e) => {
+  e.preventDefault();
+  jdZone.classList.add('drag-over');
+});
+
+jdZone.addEventListener('dragleave', () => {
+  jdZone.classList.remove('drag-over');
+});
+
+jdZone.addEventListener('drop', (e) => {
+  e.preventDefault();
+  jdZone.classList.remove('drag-over');
+  const file = e.dataTransfer.files[0];
+  if (file && validateFile(file, ['pdf', 'docx', 'txt'], 5)) {
+    jdFile = file;
+    jdInput.files = e.dataTransfer.files;
+    jdFilename.textContent = file.name;
+    jdSelected.classList.add('show');
+    document.getElementById('job-description').value = '';
+  }
+});
+
+// File validation
+function validateFile(file, allowedExtensions, maxSizeMB) {
+  const ext = file.name.split('.').pop().toLowerCase();
+  const sizeMB = file.size / (1024 * 1024);
+  
+  if (!allowedExtensions.includes(ext)) {
+    alert(`Invalid file type. Please upload: ${allowedExtensions.map(e => e.toUpperCase()).join(', ')}`);
+    return false;
+  }
+  
+  if (sizeMB > maxSizeMB) {
+    alert(`File too large. Maximum size is ${maxSizeMB}MB`);
+    return false;
+  }
+  
+  return true;
+}
+
+// Remove file functions
+function removeResumeFile() {
+  resumeFile = null;
+  resumeInput.value = '';
+  resumeSelected.classList.remove('show');
+}
+
+function removeJDFile() {
+  jdFile = null;
+  jdInput.value = '';
+  jdSelected.classList.remove('show');
+}
+
+// Generate Interview Questions
+let currentResults = null;
+
+async function generateQuestions() {
+  // Validate inputs
+  if (!resumeFile) {
+    alert('Please upload a resume');
+    return;
+  }
+  
+  const jdText = document.getElementById('job-description').value.trim();
+  if (!jdText && !jdFile) {
+    alert('Please provide a job description (text or file)');
+    return;
+  }
+  
+  // Show loading
+  document.getElementById('upload-form').style.display = 'none';
+  document.getElementById('loading-state').classList.add('show');
+  document.getElementById('results-container').classList.remove('show');
+  
+  // Prepare FormData
+  const formData = new FormData();
+  formData.append('resume', resumeFile);
+  
+  if (jdFile) {
+    formData.append('jobDescription', jdFile);
+  } else {
+    formData.append('jobDescriptionText', jdText);
+  }
+  
+  try {
+    const response = await fetch('/api/generate-interview-questions', {
+      method: 'POST',
+      body: formData
+    });
+    
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.error || 'Failed to generate questions');
+    }
+    
+    const data = await response.json();
+    currentResults = data;
+    
+    // Hide loading, show results
+    document.getElementById('loading-state').classList.remove('show');
+    displayResults(data);
+    
+  } catch (error) {
+    console.error('Error:', error);
+    alert(`Error: ${error.message}`);
+    document.getElementById('loading-state').classList.remove('show');
+    document.getElementById('upload-form').style.display = 'block';
+  }
+}
+
+// Display results
+function displayResults(data) {
+  const resultsContainer = document.getElementById('results-container');
+  const analysisSummary = document.getElementById('analysis-summary');
+  
+  // Build analysis summary
+  let summaryHTML = '';
+  
+  if (data.analysis) {
+    if (data.analysis.role) {
+      summaryHTML += `
+        <div class="analysis-item">
+          <h4>Target Role</h4>
+          <p>${data.analysis.role}</p>
+        </div>
+      `;
+    }
+    
+    if (data.analysis.experienceLevel) {
+      summaryHTML += `
+        <div class="analysis-item">
+          <h4>Experience Level</h4>
+          <p>${data.analysis.experienceLevel}</p>
+        </div>
+      `;
+    }
+    
+    if (data.analysis.matchingSkills && data.analysis.matchingSkills.length > 0) {
+      summaryHTML += `
+        <div class="analysis-item" style="grid-column: span 2;">
+          <h4>Matching Skills</h4>
+          <div class="skills-list">
+            ${data.analysis.matchingSkills.map(skill => 
+              `<span class="skill-tag">${skill}</span>`
+            ).join('')}
+          </div>
+        </div>
+      `;
+    }
+    
+    if (data.analysis.skillGaps && data.analysis.skillGaps.length > 0) {
+      summaryHTML += `
+        <div class="analysis-item" style="grid-column: span 2;">
+          <h4>Skill Gaps to Assess</h4>
+          <div class="skills-list">
+            ${data.analysis.skillGaps.map(skill => 
+              `<span class="skill-tag gap">${skill}</span>`
+            ).join('')}
+          </div>
+        </div>
+      `;
+    }
+  }
+  
+  analysisSummary.innerHTML = summaryHTML;
+  
+  // Update question counts
+  document.getElementById('basic-count').textContent = data.questions.basic.length;
+  document.getElementById('advanced-count').textContent = data.questions.advanced.length;
+  document.getElementById('scenario-count').textContent = data.questions.scenario.length;
+  
+  // Render questions
+  renderQuestions('basic', data.questions.basic);
+  renderQuestions('advanced', data.questions.advanced);
+  renderQuestions('scenario', data.questions.scenario);
+  
+  // Show results
+  resultsContainer.classList.add('show');
+  
+  // Scroll to results
+  resultsContainer.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+// Render questions for a category
+function renderQuestions(category, questions) {
+  const section = document.getElementById(`${category}-section`);
+  
+  const html = questions.map((q, index) => {
+    // Calculate difficulty stars
+    let difficultyStars = '';
+    const maxStars = 5;
+    const filledStars = q.difficulty || (category === 'basic' ? 2 : category === 'advanced' ? 4 : 5);
+    
+    for (let i = 1; i <= maxStars; i++) {
+      difficultyStars += `<span class="star ${i <= filledStars ? '' : 'empty'}">★</span>`;
+    }
+    
+    return `
+      <div class="question-card">
+        <div class="question-header">
+          <div class="question-number">${index + 1}</div>
+          <div class="question-category">${category.charAt(0).toUpperCase() + category.slice(1)}</div>
+          <div class="question-difficulty" title="Difficulty: ${filledStars}/5">
+            ${difficultyStars}
+          </div>
+        </div>
+        
+        <div class="question-text">${q.question}</div>
+        
+        ${q.reasoning ? `
+          <div class="question-reasoning">
+            <strong>Why This Question?</strong>
+            <p>${q.reasoning}</p>
+            ${q.focusArea ? `<div class="focus-area">🎯 Focus: ${q.focusArea}</div>` : ''}
+          </div>
+        ` : ''}
+      </div>
+    `;
+  }).join('');
+  
+  section.innerHTML = html;
+}
+
+// Show question category
+function showQuestionCategory(category) {
+  // Update tabs
+  document.querySelectorAll('.question-tab').forEach(tab => {
+    tab.classList.remove('active');
+  });
+  event.target.closest('.question-tab').classList.add('active');
+  
+  // Update sections
+  document.querySelectorAll('.questions-section').forEach(section => {
+    section.classList.remove('active');
+  });
+  document.getElementById(`${category}-section`).classList.add('active');
+}
+
+// Copy all questions
+function copyAllQuestions() {
+  if (!currentResults) return;
+  
+  let text = '=== INTERVIEW QUESTIONS ===\n\n';
+  
+  if (currentResults.analysis) {
+    text += '📊 ANALYSIS SUMMARY\n';
+    if (currentResults.analysis.role) text += `Role: ${currentResults.analysis.role}\n`;
+    if (currentResults.analysis.experienceLevel) text += `Level: ${currentResults.analysis.experienceLevel}\n`;
+    text += '\n';
+  }
+  
+  // Basic questions
+  text += '📘 BASIC QUESTIONS\n';
+  currentResults.questions.basic.forEach((q, i) => {
+    text += `\n${i + 1}. ${q.question}\n`;
+    if (q.reasoning) text += `   Reasoning: ${q.reasoning}\n`;
+  });
+  
+  // Advanced questions
+  text += '\n\n📕 ADVANCED QUESTIONS\n';
+  currentResults.questions.advanced.forEach((q, i) => {
+    text += `\n${i + 1}. ${q.question}\n`;
+    if (q.reasoning) text += `   Reasoning: ${q.reasoning}\n`;
+  });
+  
+  // Scenario questions
+  text += '\n\n💡 SCENARIO-BASED QUESTIONS\n';
+  currentResults.questions.scenario.forEach((q, i) => {
+    text += `\n${i + 1}. ${q.question}\n`;
+    if (q.reasoning) text += `   Reasoning: ${q.reasoning}\n`;
+  });
+  
+  // Copy to clipboard
+  navigator.clipboard.writeText(text).then(() => {
+    alert('✅ All questions copied to clipboard!');
+  }).catch(err => {
+    console.error('Failed to copy:', err);
+    alert('❌ Failed to copy to clipboard');
+  });
+}
+
+// Export to PDF (simplified version - just downloads as text file)
+function exportToPDF() {
+  if (!currentResults) return;
+  
+  let text = '=== INTERVIEW QUESTIONS ===\n\n';
+  
+  if (currentResults.analysis) {
+    text += '📊 ANALYSIS SUMMARY\n';
+    if (currentResults.analysis.role) text += `Role: ${currentResults.analysis.role}\n`;
+    if (currentResults.analysis.experienceLevel) text += `Level: ${currentResults.analysis.experienceLevel}\n`;
+    if (currentResults.analysis.matchingSkills) {
+      text += `Matching Skills: ${currentResults.analysis.matchingSkills.join(', ')}\n`;
+    }
+    if (currentResults.analysis.skillGaps) {
+      text += `Skill Gaps: ${currentResults.analysis.skillGaps.join(', ')}\n`;
+    }
+    text += '\n';
+  }
+  
+  // Basic questions
+  text += '📘 BASIC QUESTIONS\n';
+  currentResults.questions.basic.forEach((q, i) => {
+    text += `\n${i + 1}. ${q.question}\n`;
+    if (q.reasoning) text += `   Reasoning: ${q.reasoning}\n`;
+    if (q.focusArea) text += `   Focus: ${q.focusArea}\n`;
+  });
+  
+  // Advanced questions
+  text += '\n\n📕 ADVANCED QUESTIONS\n';
+  currentResults.questions.advanced.forEach((q, i) => {
+    text += `\n${i + 1}. ${q.question}\n`;
+    if (q.reasoning) text += `   Reasoning: ${q.reasoning}\n`;
+    if (q.focusArea) text += `   Focus: ${q.focusArea}\n`;
+  });
+  
+  // Scenario questions
+  text += '\n\n💡 SCENARIO-BASED QUESTIONS\n';
+  currentResults.questions.scenario.forEach((q, i) => {
+    text += `\n${i + 1}. ${q.question}\n`;
+    if (q.reasoning) text += `   Reasoning: ${q.reasoning}\n`;
+    if (q.focusArea) text += `   Focus: ${q.focusArea}\n`;
+  });
+  
+  // Create download
+  const blob = new Blob([text], { type: 'text/plain' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `interview-questions-${Date.now()}.txt`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+// Start new generation
+function startNewGeneration() {
+  // Reset form
+  removeResumeFile();
+  removeJDFile();
+  document.getElementById('job-description').value = '';
+  
+  // Hide results, show form
+  document.getElementById('results-container').classList.remove('show');
+  document.getElementById('upload-form').style.display = 'block';
+  
+  // Scroll to top
+  document.querySelector('.interview-content').scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+// Make functions globally accessible
+window.showQuestionCategory = showQuestionCategory;
+window.copyAllQuestions = copyAllQuestions;
+// Store generated answers
+let generatedAnswers = null;
+
+// Generate answers for all questions
+async function generateAnswers() {
+  if (!currentResults || !currentResults.questions) {
+    alert('Please generate questions first');
+    return;
+  }
+
+  // Collect all questions
+  const allQuestions = [
+    ...currentResults.questions.basic.map(q => ({ ...q, category: 'Basic' })),
+    ...currentResults.questions.advanced.map(q => ({ ...q, category: 'Advanced' })),
+    ...currentResults.questions.scenario.map(q => ({ ...q, category: 'Scenario' }))
+  ];
+
+  console.log('Generating answers for', allQuestions.length, 'questions');
+
+  // Show loading
+  document.getElementById('answers-loading').classList.add('show');
+  document.getElementById('generate-answers-btn').disabled = true;
+  document.getElementById('generate-answers-btn').textContent = '⏳ Generating...';
+
+  try {
+    const response = await fetch('/api/generate-answers', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        questions: allQuestions
+      })
+    });
+
+    if (!response.ok) {
+      throw new Error('Failed to generate answers');
+    }
+
+    const data = await response.json();
+    generatedAnswers = data.answers;
+
+    // Hide loading
+    document.getElementById('answers-loading').classList.remove('show');
+    
+    // Display answers in the questions
+    displayAnswersInQuestions(data.answers);
+
+    // Show download button
+    document.getElementById('download-qa-btn').style.display = 'block';
+    document.getElementById('generate-answers-btn').textContent = '✅ Answers Generated';
+    
+    alert('✅ Answers generated successfully! You can now download the Q&A document.');
+
+  } catch (error) {
+    console.error('Error generating answers:', error);
+    alert('❌ Failed to generate answers. Please try again.');
+    document.getElementById('answers-loading').classList.remove('show');
+    document.getElementById('generate-answers-btn').disabled = false;
+    document.getElementById('generate-answers-btn').textContent = '💡 Generate Answers';
+  }
+}
+
+// Display answers within question cards
+function displayAnswersInQuestions(answers) {
+  answers.forEach((qa, index) => {
+    // Find the question card
+    const allCards = document.querySelectorAll('.question-card');
+    if (allCards[index]) {
+      // Check if answer already exists
+      let answerDiv = allCards[index].querySelector('.question-answer');
+      if (!answerDiv) {
+        answerDiv = document.createElement('div');
+        answerDiv.className = 'question-answer';
+        allCards[index].appendChild(answerDiv);
+      }
+      
+      answerDiv.innerHTML = `
+        <strong>💡 Model Answer</strong>
+        <p>${qa.answer}</p>
+      `;
+    }
+  });
+}
+
+// Download questions and answers as a text file
+function downloadQuestionsAndAnswers() {
+  if (!currentResults || !generatedAnswers) {
+    alert('Please generate answers first');
+    return;
+  }
+
+  let content = '=== INTERVIEW QUESTIONS & ANSWERS ===\n\n';
+  content += `Generated: ${new Date().toLocaleString()}\n\n`;
+
+  // Add analysis summary
+  if (currentResults.analysis) {
+    content += '📊 ANALYSIS SUMMARY\n';
+    content += '─'.repeat(50) + '\n';
+    if (currentResults.analysis.role) content += `Role: ${currentResults.analysis.role}\n`;
+    if (currentResults.analysis.experienceLevel) content += `Level: ${currentResults.analysis.experienceLevel}\n`;
+    if (currentResults.analysis.matchingSkills && currentResults.analysis.matchingSkills.length > 0) {
+      content += `Matching Skills: ${currentResults.analysis.matchingSkills.join(', ')}\n`;
+    }
+    if (currentResults.analysis.skillGaps && currentResults.analysis.skillGaps.length > 0) {
+      content += `Skill Gaps: ${currentResults.analysis.skillGaps.join(', ')}\n`;
+    }
+    content += '\n';
+  }
+
+  // Add questions and answers by category
+  const categories = [
+    { name: 'BASIC', questions: currentResults.questions.basic },
+    { name: 'ADVANCED', questions: currentResults.questions.advanced },
+    { name: 'SCENARIO-BASED', questions: currentResults.questions.scenario }
+  ];
+
+  let answerIndex = 0;
+  categories.forEach(cat => {
+    content += `\n${'='.repeat(50)}\n`;
+    content += `📘 ${cat.name} QUESTIONS\n`;
+    content += `${'='.repeat(50)}\n\n`;
+
+    cat.questions.forEach((q, i) => {
+      const answer = generatedAnswers[answerIndex];
+      answerIndex++;
+
+      content += `${i + 1}. QUESTION:\n`;
+      content += `   ${q.question}\n\n`;
+      
+      if (q.reasoning) {
+        content += `   💭 Why this question?\n`;
+        content += `   ${q.reasoning}\n\n`;
+      }
+
+      if (answer && answer.answer) {
+        content += `   💡 MODEL ANSWER:\n`;
+        content += `   ${answer.answer}\n\n`;
+      }
+
+      content += `   Focus Area: ${q.focusArea || 'General'}\n`;
+      content += `\n${'-'.repeat(50)}\n\n`;
+    });
+  });
+
+  // Create download
+  const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `interview-qa-${Date.now()}.txt`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+
+  console.log('Downloaded Q&A document');
+}
+
+window.exportToPDF = exportToPDF;
+window.startNewGeneration = startNewGeneration;
+window.removeResumeFile = removeResumeFile;
+window.removeJDFile = removeJDFile;
+window.generateQuestions = generateQuestions;
+window.generateAnswers = generateAnswers;
+window.downloadQuestionsAndAnswers = downloadQuestionsAndAnswers;

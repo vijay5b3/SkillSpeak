@@ -2,6 +2,10 @@
 const axios = require('axios');
 const path = require('path');
 const cors = require('cors');
+const multer = require('multer');
+const pdfParse = require('pdf-parse');
+const mammoth = require('mammoth');
+const fs = require('fs');
 require('dotenv').config();
 
 const app = express();
@@ -404,6 +408,315 @@ What would you like to learn about today?`;
     const status = err.response?.status || 500;
     const errorMessage = err.response?.data?.error?.message || err.response?.data?.error || err.message || 'Unknown error occurred';
     return res.status(status).json({ error: errorMessage });
+  }
+});
+
+// ========================================
+// INTERVIEW QUESTIONS GENERATOR ENDPOINT
+// ========================================
+
+// Configure file upload with multer
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 5 * 1024 * 1024 }, // 5MB limit
+  fileFilter: (req, file, cb) => {
+    const allowedTypes = [
+      'application/pdf',
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      'text/plain'
+    ];
+    if (allowedTypes.includes(file.mimetype)) {
+      cb(null, true);
+    } else {
+      cb(new Error('Invalid file type. Only PDF, DOCX, and TXT files are allowed.'));
+    }
+  }
+});
+
+// Helper function to extract text from files
+async function extractTextFromFile(file) {
+  try {
+    if (file.mimetype === 'application/pdf') {
+      const data = await pdfParse(file.buffer);
+      return data.text;
+    } else if (file.mimetype === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') {
+      const result = await mammoth.extractRawText({ buffer: file.buffer });
+      return result.value;
+    } else if (file.mimetype === 'text/plain') {
+      return file.buffer.toString('utf-8');
+    }
+    return '';
+  } catch (error) {
+    console.error('Error extracting text from file:', error);
+    throw new Error('Failed to extract text from file');
+  }
+}
+
+// Generate interview questions using Mistral 7B
+async function generateInterviewQuestions(resumeText, jobDescriptionText) {
+  // Simpler, more direct prompt
+  const systemPrompt = `You are an expert technical interviewer. Analyze the resume and job description, then generate specific interview questions.
+
+Return a JSON object with this structure:
+{
+  "analysis": {
+    "role": "job title",
+    "experienceLevel": "Junior/Mid/Senior",
+    "matchingSkills": ["skill1", "skill2"],
+    "skillGaps": ["gap1", "gap2"]
+  },
+  "questions": {
+    "basic": [{"question": "text", "reasoning": "why", "focusArea": "topic"}],
+    "advanced": [{"question": "text", "reasoning": "why", "focusArea": "topic"}],
+    "scenario": [{"question": "text", "reasoning": "why", "focusArea": "topic"}]
+  }
+}
+
+Generate 5-7 questions per category. Questions must be specific to the resume/job. Return ONLY valid JSON.`;
+
+  const userPrompt = `RESUME:\n${resumeText.substring(0, 2000)}\n\nJOB DESCRIPTION:\n${jobDescriptionText.substring(0, 1500)}\n\nGenerate interview questions as JSON.`;
+
+  try {
+    console.log('Making API call to OpenRouter...');
+    console.log('Model:', OPENROUTER_MODEL);
+    console.log('Resume length:', resumeText.length, 'chars');
+    console.log('Job desc length:', jobDescriptionText.length, 'chars');
+    
+    const response = await axios.post(
+      `${OPENROUTER_BASE_URL}/chat/completions`,
+      {
+        model: OPENROUTER_MODEL,
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userPrompt }
+        ],
+        max_tokens: 6000,
+        temperature: 0.7,
+        top_p: 0.95
+      },
+      {
+        headers: {
+          'Authorization': `Bearer ${OPENROUTER_API_KEY}`,
+          'Content-Type': 'application/json'
+        },
+        timeout: 60000 // 60 second timeout
+      }
+    );
+
+    console.log('API Response Status:', response.status);
+    console.log('Response data structure:', {
+      hasChoices: !!response.data?.choices,
+      choicesLength: response.data?.choices?.length,
+      hasMessage: !!response.data?.choices?.[0]?.message,
+      hasContent: !!response.data?.choices?.[0]?.message?.content
+    });
+
+    if (!response.data?.choices?.[0]?.message?.content) {
+      console.error('Empty response from API!');
+      console.error('Full response:', JSON.stringify(response.data, null, 2));
+      throw new Error('API returned empty response');
+    }
+
+    const content = response.data.choices[0].message.content;
+    
+    console.log('=== Mistral Response Preview ===');
+    console.log('First 500 chars:', content.substring(0, 500));
+    console.log('Last 200 chars:', content.substring(content.length - 200));
+    console.log('================================');
+    
+    // Try to parse as JSON
+    try {
+      const parsed = JSON.parse(content);
+      return parsed;
+    } catch (e) {
+      console.log('Direct JSON parse failed, trying to extract from markdown...');
+      
+      // If not valid JSON, try to extract JSON from markdown code blocks
+      const jsonMatch = content.match(/```json\s*([\s\S]*?)\s*```/);
+      if (jsonMatch) {
+        console.log('Found JSON in markdown code block');
+        return JSON.parse(jsonMatch[1]);
+      }
+      
+      // Try without json tag
+      const codeMatch = content.match(/```\s*([\s\S]*?)\s*```/);
+      if (codeMatch) {
+        console.log('Found content in code block (no json tag)');
+        return JSON.parse(codeMatch[1]);
+      }
+      
+      // Log the full content for debugging
+      console.error('=== FULL RESPONSE (could not parse) ===');
+      console.error(content);
+      console.error('=======================================');
+      
+      // If still can't parse, return structured error
+      throw new Error('Failed to parse response as JSON');
+    }
+  } catch (error) {
+    console.error('Error calling OpenRouter API:', error.message);
+    if (error.response) {
+      console.error('API Error Response:', {
+        status: error.response.status,
+        statusText: error.response.statusText,
+        data: error.response.data
+      });
+    }
+    throw error;
+  }
+}
+
+// Interview Questions Generation Endpoint
+app.post('/api/generate-interview-questions',
+  upload.fields([
+    { name: 'resume', maxCount: 1 },
+    { name: 'jobDescription', maxCount: 1 }
+  ]),
+  async (req, res) => {
+    try {
+      console.log('Received interview questions generation request');
+
+      // Extract resume text
+      if (!req.files || !req.files['resume']) {
+        return res.status(400).json({ error: 'Resume file is required' });
+      }
+
+      const resumeFile = req.files['resume'][0];
+      console.log('Resume file:', resumeFile.originalname, resumeFile.mimetype);
+      
+      const resumeText = await extractTextFromFile(resumeFile);
+      
+      if (!resumeText || resumeText.trim().length < 50) {
+        return res.status(400).json({ error: 'Resume file appears to be empty or too short' });
+      }
+
+      // Extract job description text
+      let jobDescriptionText = '';
+      
+      // Check if job description was uploaded as file
+      if (req.files && req.files['jobDescription']) {
+        const jdFile = req.files['jobDescription'][0];
+        console.log('Job description file:', jdFile.originalname, jdFile.mimetype);
+        jobDescriptionText = await extractTextFromFile(jdFile);
+      } 
+      // Otherwise get from request body (check both field names)
+      else if (req.body.jobDescriptionText) {
+        jobDescriptionText = req.body.jobDescriptionText;
+        console.log('Job description from textarea:', jobDescriptionText.substring(0, 100));
+      } else if (req.body.jobDescription) {
+        jobDescriptionText = req.body.jobDescription;
+        console.log('Job description from body:', jobDescriptionText.substring(0, 100));
+      }
+
+      if (!jobDescriptionText || jobDescriptionText.trim().length < 20) {
+        return res.status(400).json({ error: 'Job description is required and must be at least 20 characters' });
+      }
+
+      console.log('Resume text length:', resumeText.length);
+      console.log('Job description length:', jobDescriptionText.length);
+
+      // Generate interview questions
+      console.log('Calling Mistral 7B to generate questions...');
+      const questions = await generateInterviewQuestions(resumeText, jobDescriptionText);
+
+      console.log('Successfully generated questions');
+      res.json(questions);
+
+    } catch (error) {
+      console.error('Error in interview questions generation:', error);
+      
+      if (error.message.includes('Invalid file type')) {
+        return res.status(400).json({ error: error.message });
+      }
+      
+      if (error.response) {
+        return res.status(error.response.status).json({
+          error: error.response.data?.error?.message || 'API error occurred'
+        });
+      }
+      
+      res.status(500).json({
+        error: 'Failed to generate interview questions. Please try again.'
+      });
+    }
+  }
+);
+
+// Generate answers for interview questions
+app.post('/api/generate-answers', async (req, res) => {
+  try {
+    const { questions, resumeText, jobDescriptionText } = req.body;
+    
+    if (!questions || !Array.isArray(questions)) {
+      return res.status(400).json({ error: 'Questions array is required' });
+    }
+
+    console.log('Generating answers for', questions.length, 'questions');
+
+    const answers = [];
+    
+    // Generate answers in batches to avoid timeout
+    for (const q of questions) {
+      try {
+        const systemPrompt = `You are an expert interviewer providing model answers for technical interview questions. 
+Generate a comprehensive, professional answer that demonstrates strong technical knowledge.
+
+The answer should:
+- Be 3-5 sentences long
+- Show deep understanding of the concept
+- Include specific examples or use cases
+- Be suitable for the question's difficulty level
+- Sound professional and confident
+
+Return only the answer text, no JSON, no formatting.`;
+
+        const userPrompt = `Question: ${q.question}\n\nContext: ${q.reasoning || ''}\n\nProvide a model answer:`;
+
+        const response = await axios.post(
+          `${OPENROUTER_BASE_URL}/chat/completions`,
+          {
+            model: OPENROUTER_MODEL,
+            messages: [
+              { role: 'system', content: systemPrompt },
+              { role: 'user', content: userPrompt }
+            ],
+            max_tokens: 500,
+            temperature: 0.7
+          },
+          {
+            headers: {
+              'Authorization': `Bearer ${OPENROUTER_API_KEY}`,
+              'Content-Type': 'application/json'
+            },
+            timeout: 30000
+          }
+        );
+
+        const answer = response.data.choices[0].message.content.trim();
+        
+        answers.push({
+          question: q.question,
+          answer: answer,
+          category: q.category || q.focusArea,
+          reasoning: q.reasoning
+        });
+
+      } catch (error) {
+        console.error('Error generating answer for question:', error.message);
+        answers.push({
+          question: q.question,
+          answer: 'Answer generation failed. Please try again.',
+          category: q.category || q.focusArea,
+          reasoning: q.reasoning
+        });
+      }
+    }
+
+    res.json({ answers });
+
+  } catch (error) {
+    console.error('Error in answer generation:', error);
+    res.status(500).json({ error: 'Failed to generate answers' });
   }
 });
 
