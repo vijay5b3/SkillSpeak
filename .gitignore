@@ -62,7 +62,6 @@ SRMV-Release/
 
 # Vercel
 .vercel
-.vercel.json
 
 # Temporary files
 tmp/
