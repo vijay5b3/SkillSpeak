@@ -14,7 +14,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Release")]
 [assembly: System.Reflection.AssemblyDescriptionAttribute("AI-powered chat assistant overlay for interviews and meetings")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+37f62e25fc5de789485e4b501cbb6612dfe3d52b")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+71794cc9def52fba9524828fbae77438b267b82d")]
 [assembly: System.Reflection.AssemblyProductAttribute("SRMV - AI Assistant Overlay")]
 [assembly: System.Reflection.AssemblyTitleAttribute("SRMV")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]

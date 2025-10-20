@@ -769,19 +769,21 @@ document.querySelectorAll('.nav-tab').forEach(tab => {
     document.querySelectorAll('.nav-tab').forEach(t => t.classList.remove('active'));
     tab.classList.add('active');
     
-    // Update sections
+    // Hide all sections
+    document.getElementById('chat-section').classList.remove('active');
+    document.getElementById('interview-generator').classList.remove('active');
+    document.getElementById('rating-section').classList.remove('active');
+    document.getElementById('resume-practice-section').classList.remove('active');
+    
+    // Show selected section
     if (section === 'chat') {
       document.getElementById('chat-section').classList.add('active');
-      document.getElementById('interview-generator').classList.remove('active');
-      document.getElementById('rating-section').classList.remove('active');
     } else if (section === 'interview') {
-      document.getElementById('chat-section').classList.remove('active');
       document.getElementById('interview-generator').classList.add('active');
-      document.getElementById('rating-section').classList.remove('active');
     } else if (section === 'rating') {
-      document.getElementById('chat-section').classList.remove('active');
-      document.getElementById('interview-generator').classList.remove('active');
       document.getElementById('rating-section').classList.add('active');
+    } else if (section === 'resume-practice') {
+      document.getElementById('resume-practice-section').classList.add('active');
     }
   });
 });
@@ -1649,6 +1651,10 @@ function clearReport() {
   document.getElementById('rating-report').style.display = 'none';
 }
 
+// ============================================
+// (OLD RESUME-AWARE CODE REMOVED - NOW IN SEPARATE "Resume-Aware Practice" TAB)
+// ============================================
+
 // Expose functions globally
 window.rateQuestion = rateQuestion;
 window.saveRatings = saveRatings;
@@ -1663,3 +1669,539 @@ window.removeJDFile = removeJDFile;
 window.generateQuestions = generateQuestions;
 window.generateAnswers = generateAnswers;
 window.downloadQuestionsAndAnswers = downloadQuestionsAndAnswers;
+
+// ============================================
+// RESUME-AWARE INTERVIEW PRACTICE (STANDALONE)
+// ============================================
+
+let practiceSessionId = null;
+let practiceResumeData = null;
+let practiceMode = 'detailed';
+let practiceMessages = [];
+let currentInputMethod = 'upload'; // 'upload' or 'paste'
+let practiceClientId = null; // For Windows app sync
+let practiceRecognition = null; // Speech recognition for practice
+let isPracticeRecording = false;
+
+// Initialize speech recognition for Resume-Aware Practice (same as Chat Assistant)
+if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
+  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+  
+  // Create recognition instance
+  practiceRecognition = new SpeechRecognition();
+  practiceRecognition.continuous = false;
+  practiceRecognition.interimResults = true; // Enable interim results for better UX
+  practiceRecognition.lang = 'en-US';
+  practiceRecognition.maxAlternatives = 3; // Get multiple alternatives for better accuracy
+  
+  // Technical vocabulary for better speech recognition (optional)
+  const techVocabulary = ['JavaScript', 'Python', 'React', 'Node.js', 'MongoDB', 'SQL', 'API', 'Docker', 'AWS', 'Git', 'TypeScript', 'Vue', 'Angular'];
+  if ('SpeechGrammarList' in window) {
+    const grammarList = new window.SpeechGrammarList();
+    const grammar = '#JSGF V1.0; grammar tech; public <tech> = ' + techVocabulary.join(' | ') + ' ;';
+    grammarList.addFromString(grammar, 1);
+    practiceRecognition.grammars = grammarList;
+  }
+  
+  practiceRecognition.onstart = () => {
+    console.log('Practice voice recognition started');
+    isPracticeRecording = true;
+    const recordBtn = document.getElementById('practice-record');
+    if (recordBtn) {
+      recordBtn.classList.add('recording');
+      recordBtn.textContent = '⏹️ Stop';
+      recordBtn.title = 'Click to stop recording';
+    }
+  };
+  
+  practiceRecognition.onend = () => {
+    console.log('Practice voice recognition ended');
+    isPracticeRecording = false;
+    const recordBtn = document.getElementById('practice-record');
+    if (recordBtn) {
+      recordBtn.classList.remove('recording');
+      recordBtn.textContent = '🎤 Voice';
+      recordBtn.title = 'Click to start voice recording';
+    }
+  };
+  
+  practiceRecognition.onresult = (event) => {
+    console.log('Practice recognition result received');
+    let interimTranscript = '';
+    let finalTranscript = '';
+    
+    for (let i = event.resultIndex; i < event.results.length; i++) {
+      const result = event.results[i];
+      const transcript = result[0].transcript;
+      
+      // Log alternatives for debugging
+      if (result.length > 1) {
+        console.log('Alternatives:', Array.from(result).map(alt => ({
+          text: alt.transcript,
+          confidence: alt.confidence
+        })));
+      }
+      
+      if (result.isFinal) {
+        finalTranscript += transcript;
+        console.log('Final transcript:', finalTranscript);
+      } else {
+        interimTranscript += transcript;
+        console.log('Interim transcript:', interimTranscript);
+      }
+    }
+    
+    const practiceInput = document.getElementById('practice-input');
+    if (practiceInput) {
+      if (finalTranscript) {
+        practiceInput.value = finalTranscript;
+        practiceInput.dispatchEvent(new Event('input', { bubbles: true }));
+      } else if (interimTranscript) {
+        practiceInput.value = interimTranscript;
+      }
+    }
+  };
+  
+  practiceRecognition.onerror = (event) => {
+    console.error('Practice speech recognition error:', event.error);
+    isPracticeRecording = false;
+    const recordBtn = document.getElementById('practice-record');
+    if (recordBtn) {
+      recordBtn.classList.remove('recording');
+      recordBtn.textContent = '🎤 Voice';
+      recordBtn.title = 'Click to start voice recording';
+    }
+    
+    let errorMsg = 'Speech recognition error';
+    switch (event.error) {
+      case 'no-speech':
+        errorMsg = '🎤 No speech detected. Please try again.';
+        break;
+      case 'audio-capture':
+        errorMsg = '🎤 No microphone found. Please check your microphone.';
+        break;
+      case 'not-allowed':
+        errorMsg = '🎤 Microphone access denied. Please allow microphone access in your browser settings.';
+        break;
+      case 'network':
+        errorMsg = '🎤 Network error. Please check your internet connection.';
+        break;
+      case 'aborted':
+        // User stopped recording - not an error
+        return;
+      default:
+        errorMsg = `🎤 Recognition error: ${event.error}`;
+    }
+    
+    if (event.error !== 'aborted') {
+      alert(errorMsg);
+    }
+  };
+  
+  console.log('Practice speech recognition initialized');
+} else {
+  console.log('Practice speech recognition not supported');
+}
+
+// Show username prompt for Resume-Aware Practice
+function showPracticeUsernamePrompt() {
+  const username = prompt('👤 Enter your username:\n\nThis will sync your messages with the Windows Voice App.\n\nRequirements:\n• 3-20 characters\n• Letters and numbers only\n• No spaces or special characters');
+  
+  if (!username) return;
+  
+  // Validate username
+  const trimmed = username.trim();
+  if (trimmed.length < 3 || trimmed.length > 20) {
+    alert('❌ Username must be 3-20 characters long.');
+    return;
+  }
+  
+  if (!/^[a-zA-Z0-9]+$/.test(trimmed)) {
+    alert('❌ Username can only contain letters and numbers (no spaces or special characters).');
+    return;
+  }
+  
+  // Set username
+  practiceClientId = trimmed;
+  
+  // Update UI
+  document.getElementById('practice-guest-btn').style.display = 'none';
+  document.getElementById('practice-username-display').style.display = 'flex';
+  document.getElementById('practice-current-username').textContent = practiceClientId;
+  document.getElementById('practice-username-status').textContent = 
+    `✅ Connected as "${practiceClientId}" - Messages will appear in Windows Voice App`;
+  
+  console.log('Resume Practice username set:', practiceClientId);
+}
+
+// Switch between upload and paste methods
+function switchInputMethod(method) {
+  currentInputMethod = method;
+  
+  // Update button states
+  document.getElementById('upload-method-btn').classList.toggle('active', method === 'upload');
+  document.getElementById('paste-method-btn').classList.toggle('active', method === 'paste');
+  
+  // Toggle visibility
+  document.getElementById('file-upload-option').style.display = method === 'upload' ? 'block' : 'none';
+  document.getElementById('text-paste-option').style.display = method === 'paste' ? 'block' : 'none';
+}
+
+// Clear resume text
+function clearResumeText() {
+  document.getElementById('practice-resume-text').value = '';
+}
+
+// Submit resume text
+async function submitResumeText() {
+  const textarea = document.getElementById('practice-resume-text');
+  const resumeText = textarea.value.trim();
+  
+  if (!resumeText) {
+    alert('⚠️ Please paste your resume text first.');
+    return;
+  }
+  
+  if (resumeText.length < 100) {
+    alert('⚠️ Resume text seems too short. Please provide more details about your experience, skills, and projects.');
+    return;
+  }
+  
+  try {
+    // Show loading state
+    const submitBtn = event.target;
+    submitBtn.disabled = true;
+    submitBtn.textContent = '⏳ Analyzing...';
+    
+    const response = await fetch('/api/parse-resume-text', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ resumeText })
+    });
+    
+    if (!response.ok) {
+      throw new Error('Failed to parse resume text');
+    }
+    
+    const result = await response.json();
+    practiceSessionId = result.sessionId;
+    practiceResumeData = result.resumeData;
+    
+    // Update UI
+    document.getElementById('practice-resume-upload').style.display = 'none';
+    document.getElementById('practice-chat-section').style.display = 'block';
+    
+    document.getElementById('practice-role').textContent = result.summary.role;
+    document.getElementById('practice-experience').textContent = `${result.summary.experience} years`;
+    
+    const techTags = document.getElementById('practice-tech-tags');
+    techTags.innerHTML = '';
+    (result.summary.technologies || []).forEach(tech => {
+      const tag = document.createElement('span');
+      tag.className = 'tech-tag';
+      tag.textContent = tech;
+      techTags.appendChild(tag);
+    });
+    
+    document.getElementById('practice-resume-info').style.display = 'block';
+    
+    alert('✅ Resume text analyzed! Now you can start practicing interview questions.');
+    
+  } catch (error) {
+    console.error('Error submitting resume text:', error);
+    alert('❌ Failed to analyze resume text. Please try again.');
+    
+    // Reset button
+    const submitBtn = event.target;
+    submitBtn.disabled = false;
+    submitBtn.textContent = '✅ Submit Resume Text';
+  }
+}
+
+// Upload resume for practice
+async function uploadPracticeResume() {
+  const fileInput = document.getElementById('practice-resume-file');
+  const file = fileInput.files[0];
+  
+  if (!file) return;
+  
+  // Validate file
+  const validTypes = ['application/pdf', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'];
+  if (!validTypes.includes(file.type)) {
+    alert('❌ Please upload a PDF or DOCX file.');
+    return;
+  }
+  
+  if (file.size > 5 * 1024 * 1024) {
+    alert('❌ File size must be less than 5MB.');
+    return;
+  }
+  
+  try {
+    const formData = new FormData();
+    formData.append('resume', file);
+    
+    const response = await fetch('/api/parse-resume', {
+      method: 'POST',
+      body: formData
+    });
+    
+    if (!response.ok) {
+      throw new Error('Failed to parse resume');
+    }
+    
+    const result = await response.json();
+    practiceSessionId = result.sessionId;
+    practiceResumeData = result.resumeData;
+    
+    // Update UI
+    document.getElementById('practice-resume-upload').style.display = 'none';
+    document.getElementById('practice-chat-section').style.display = 'block';
+    
+    document.getElementById('practice-role').textContent = result.summary.role;
+    document.getElementById('practice-experience').textContent = `${result.summary.experience} years`;
+    
+    const techTags = document.getElementById('practice-tech-tags');
+    techTags.innerHTML = '';
+    (result.summary.technologies || []).forEach(tech => {
+      const tag = document.createElement('span');
+      tag.className = 'tech-tag';
+      tag.textContent = tech;
+      techTags.appendChild(tag);
+    });
+    
+    document.getElementById('practice-resume-info').style.display = 'block';
+    
+    alert('✅ Resume loaded! Now you can start practicing interview questions.');
+    
+  } catch (error) {
+    console.error('Error uploading resume:', error);
+    alert('❌ Failed to analyze resume. Please try again.');
+  }
+}
+
+// Send practice message
+async function sendPracticeMessage() {
+  const input = document.getElementById('practice-input');
+  const message = input.value.trim();
+  
+  if (!message) return;
+  if (!practiceSessionId) {
+    alert('⚠️ Please upload your resume first.');
+    return;
+  }
+  
+  // Add user message
+  addPracticeMessage(message, 'user');
+  input.value = '';
+  
+  // Disable send button
+  const sendBtn = document.getElementById('practice-send-btn');
+  sendBtn.disabled = true;
+  sendBtn.textContent = 'Generating... ⏳';
+  
+  // Create placeholder for streaming response
+  const container = document.getElementById('practice-messages');
+  const messageDiv = document.createElement('div');
+  messageDiv.className = 'practice-message assistant streaming';
+  
+  const badge = document.createElement('div');
+  badge.className = 'resume-badge';
+  badge.textContent = '⭐ Resume-Based';
+  messageDiv.appendChild(badge);
+  
+  const contentSpan = document.createElement('span');
+  messageDiv.appendChild(contentSpan);
+  container.appendChild(messageDiv);
+  
+  try {
+    // Build URL with practiceClientId for Windows app sync
+    let url = '/api/chat-with-resume';
+    if (practiceClientId) {
+      url += `?clientId=${encodeURIComponent(practiceClientId)}`;
+    }
+    
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: { 
+        'Content-Type': 'application/json',
+        'x-client-id': practiceClientId || ''
+      },
+      body: JSON.stringify({
+        message: message,
+        sessionId: practiceSessionId,
+        mode: practiceMode
+      })
+    });
+    
+    if (!response.ok) {
+      throw new Error('Failed to get response');
+    }
+    
+    // Handle streaming response
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let fullText = '';
+    
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      
+      const chunk = decoder.decode(value, { stream: true });
+      const lines = chunk.split('\n');
+      
+      for (const line of lines) {
+        if (line.startsWith('data: ')) {
+          try {
+            const data = JSON.parse(line.slice(6));
+            
+            if (data.type === 'chunk' && data.content) {
+              fullText += data.content;
+              contentSpan.textContent = fullText;
+              container.scrollTop = container.scrollHeight;
+            } else if (data.type === 'complete') {
+              fullText = data.content;
+              contentSpan.textContent = fullText;
+              messageDiv.classList.remove('streaming');
+              container.scrollTop = container.scrollHeight;
+              practiceMessages.push({ role: 'assistant', text: fullText, isResumeAware: true });
+            } else if (data.type === 'error') {
+              contentSpan.textContent = '❌ Error generating response';
+              messageDiv.classList.remove('streaming');
+            }
+          } catch (e) {
+            // Skip invalid JSON
+          }
+        }
+      }
+    }
+    
+  } catch (error) {
+    console.error('Error:', error);
+    contentSpan.textContent = '❌ Sorry, there was an error. Please try again.';
+    messageDiv.classList.remove('streaming');
+  } finally {
+    sendBtn.disabled = false;
+    sendBtn.textContent = 'Send 📤';
+  }
+}
+
+// Add message to practice chat
+function addPracticeMessage(text, role, isResumeAware = false) {
+  const container = document.getElementById('practice-messages');
+  const messageDiv = document.createElement('div');
+  messageDiv.className = `practice-message ${role}`;
+  
+  if (isResumeAware) {
+    const badge = document.createElement('div');
+    badge.className = 'resume-badge';
+    badge.textContent = '⭐ Resume-Based';
+    messageDiv.appendChild(badge);
+  }
+  
+  const textNode = document.createTextNode(text);
+  messageDiv.appendChild(textNode);
+  
+  container.appendChild(messageDiv);
+  container.scrollTop = container.scrollHeight;
+  
+  practiceMessages.push({ role, text, isResumeAware });
+}
+
+// Set practice mode
+function setPracticeMode(mode) {
+  practiceMode = mode;
+  
+  document.querySelectorAll('.mode-btn').forEach(btn => {
+    btn.classList.remove('active');
+  });
+  
+  if (mode === 'detailed') {
+    document.getElementById('practice-detailed-btn').classList.add('active');
+  } else {
+    document.getElementById('practice-simple-btn').classList.add('active');
+  }
+}
+
+// Ask example question
+function askExample(question) {
+  document.getElementById('practice-input').value = question;
+  sendPracticeMessage();
+}
+
+// Remove practice resume
+function removePracticeResume() {
+  if (!confirm('Remove resume and clear chat history?')) {
+    return;
+  }
+  
+  practiceSessionId = null;
+  practiceResumeData = null;
+  practiceMessages = [];
+  
+  document.getElementById('practice-resume-upload').style.display = 'block';
+  document.getElementById('practice-chat-section').style.display = 'none';
+  document.getElementById('practice-resume-info').style.display = 'none';
+  document.getElementById('practice-messages').innerHTML = '';
+  document.getElementById('practice-resume-file').value = '';
+}
+
+// Initialize practice resume upload
+document.addEventListener('DOMContentLoaded', () => {
+  const practiceFileInput = document.getElementById('practice-resume-file');
+  const practiceZone = document.getElementById('practice-resume-zone');
+  
+  if (practiceZone) {
+    practiceZone.addEventListener('click', () => practiceFileInput.click());
+  }
+  
+  if (practiceFileInput) {
+    practiceFileInput.addEventListener('change', uploadPracticeResume);
+  }
+  
+  // Practice voice record button
+  const practiceRecordBtn = document.getElementById('practice-record');
+  if (practiceRecordBtn) {
+    practiceRecordBtn.addEventListener('click', () => {
+      if (!practiceRecognition) {
+        alert('🎤 Voice input is not supported in your browser.\n\nPlease use:\n- Chrome\n- Edge\n- Safari (iOS)\n\nFirefox does not support speech recognition.');
+        return;
+      }
+      
+      if (isPracticeRecording) {
+        practiceRecognition.stop();
+      } else {
+        try {
+          practiceRecognition.start();
+        } catch (e) {
+          console.error('Practice recognition start error:', e);
+          if (e.message.includes('already started')) {
+            practiceRecognition.stop();
+            setTimeout(() => practiceRecognition.start(), 100);
+          }
+        }
+      }
+    });
+  }
+  
+  // Enter key in practice input
+  const practiceInput = document.getElementById('practice-input');
+  if (practiceInput) {
+    practiceInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        sendPracticeMessage();
+      }
+    });
+  }
+});
+
+// Expose functions globally
+window.sendPracticeMessage = sendPracticeMessage;
+window.setPracticeMode = setPracticeMode;
+window.askExample = askExample;
+window.removePracticeResume = removePracticeResume;
+window.switchInputMethod = switchInputMethod;
+window.submitResumeText = submitResumeText;
+window.clearResumeText = clearResumeText;
+window.showPracticeUsernamePrompt = showPracticeUsernamePrompt;

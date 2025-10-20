@@ -1,114 +1,226 @@
-# 🎯 SRMV - Production Build v2.1.0# SRMV - Smart Response Mode Voice Assistant# 🎯 SRMV - Production Build
+# SRMV v2.2.0 - Production Release# 🎯 SRMV - Production Build v2.1.0# SRMV - Smart Response Mode Voice Assistant# 🎯 SRMV - Production Build
 
 
+
+**Speech Recognition & Memory Voice Assistant**  
+
+Production build connected to: **https://chat-bot-final-b1uz.vercel.app**
 
 ## ✅ Connected to Production Server## Version 2.1.0 - Localhost Development Build
 
+---
 
+
+
+## 🚀 Quick Start
 
 This build connects to your **live Vercel production server**:## ✅ Connected to Production Server
 
+1. **Run the app**: Double-click `SRMV.exe`
+
+2. **Enter Username**: Prompt will appear (e.g., "john123")
+
+   - 3-20 characters
+
+   - Letters and numbers only- **Production URL:** https://chat-bot-final-b1uz.vercel.app### 🎯 What's New in v2.1.0
+
+3. **Start Chatting**: App connects to production server
+
+4. **Keyboard Shortcuts**:- **SSE Endpoint:** https://chat-bot-final-b1uz.vercel.app/events
+
+   - **F2**: Toggle transparency
+
+   - **F3**: Switch mode (Detailed ↔ Simple)- **API Endpoint:** https://chat-bot-final-b1uz.vercel.app/api/chat- **Increased Token Limit**: Now supports up to 6000 tokens (~4,500 words) for larger code responsesThis build connects to your **live Vercel production server**:
 
 
-- **Production URL:** https://chat-bot-final-b1uz.vercel.app### 🎯 What's New in v2.1.0
-
-- **SSE Endpoint:** https://chat-bot-final-b1uz.vercel.app/events
-
-- **API Endpoint:** https://chat-bot-final-b1uz.vercel.app/api/chat- **Increased Token Limit**: Now supports up to 6000 tokens (~4,500 words) for larger code responsesThis build connects to your **live Vercel production server**:
-
-
-
----- **Better Code Generation**: Complete implementations for complex programs
-
-
-
-## 🚀 Quick Start- **Improved Streaming**: Real-time response streaming with better completion handling- **Production URL:** https://chat-bot-final-b1uz.vercel.app
-
-
-
-1. **Simply Run SRMV.exe**- **Localhost Connection**: Connects to local development server at `http://localhost:3000`- **SSE Endpoint:** https://chat-bot-final-b1uz.vercel.app/events
-
-   - Double-click `SRMV.exe` in this folder
-
-   - Wait for "✅ Connected - Ready to chat!"- **API Endpoint:** https://chat-bot-final-b1uz.vercel.app/api/chat
-
-   - Start asking questions!
-
-### 🚀 Quick Start
-
-2. **No Server Setup Needed** - Connects directly to Vercel production
 
 ---
 
----
 
-1. **Start the Local Server First**:
 
-## ⌨️ Keyboard Shortcuts
+## ✨ New in v2.2.0---- **Better Code Generation**: Complete implementations for complex programs
 
-   ```powershell## 📦 What's Included
 
-- **F2**: Toggle transparency (60% ↔ 100% opacity)
 
-- **F3**: Toggle between Detailed Mode 📚 and Simple Mode 💡   cd d:\Gemina_v2.2_production
+### 🔐 Session Features
+
+- ✅ **Always prompts username on launch** - No persistence
+
+- ✅ **Auto-reconnect** - Reconnects every 1 second if disconnected## 🚀 Quick Start- **Improved Streaming**: Real-time response streaming with better completion handling- **Production URL:** https://chat-bot-final-b1uz.vercel.app
+
+- ✅ **Cross-platform sync** - Use same username on web and Windows
+
+- ✅ **Session isolation** - Each username gets private conversation
+
+
+
+### 🎨 UI Improvements1. **Simply Run SRMV.exe**- **Localhost Connection**: Connects to local development server at `http://localhost:3000`- **SSE Endpoint:** https://chat-bot-final-b1uz.vercel.app/events
+
+- ✅ Fixed code explanation display bug
+
+- ✅ Mobile responsive design   - Double-click `SRMV.exe` in this folder
+
+- ✅ Theme switching (Purple/Orange)
+
+- ✅ Voice notification optimization   - Wait for "✅ Connected - Ready to chat!"- **API Endpoint:** https://chat-bot-final-b1uz.vercel.app/api/chat
+
+
+
+---   - Start asking questions!
+
+
+
+## 📱 Multi-Device Usage### 🚀 Quick Start
+
+
+
+**Want to use both Windows app and web chat?**2. **No Server Setup Needed** - Connects directly to Vercel production
+
+
+
+1. **Windows**: Launch SRMV.exe → Enter "alice"---
+
+2. **Web**: Open https://chat-bot-final-b1uz.vercel.app → Click "👤 Guest" → Enter "alice"
+
+3. **Result**: Both see the same conversation in real-time!---
+
+
+
+---1. **Start the Local Server First**:
+
+
+
+## 🎯 Features## ⌨️ Keyboard Shortcuts
+
+
+
+### Chat Features   ```powershell## 📦 What's Included
+
+- Real-time streaming responses
+
+- Two modes: Detailed (📚) and Simple (💡)- **F2**: Toggle transparency (60% ↔ 100% opacity)
+
+- Code syntax highlighting
+
+- Context-aware conversations- **F3**: Toggle between Detailed Mode 📚 and Simple Mode 💡   cd d:\Gemina_v2.2_production
+
+- Private session isolation
 
 - **Enter**: Send message
 
-- **Shift+Enter**: New line in input   npm start- **SRMV.exe** - Standalone Windows application (72 MB)
+### Window Features
+
+- Always-on-top overlay- **Shift+Enter**: New line in input   npm start- **SRMV.exe** - Standalone Windows application (72 MB)
+
+- Transparent background (F2 toggle)
+
+- Draggable anywhere on screen
+
+- Screen capture protection
+
+- Blur/Acrylic effects (Windows 10/11)---   ```- Self-contained with .NET 8.0 runtime
 
 
 
----   ```- Self-contained with .NET 8.0 runtime
+---
 
 
 
-## 📚 Two Response Modes   Server should start at `http://localhost:3000`- No installation required
+## 🔒 Privacy & Security## 📚 Two Response Modes   Server should start at `http://localhost:3000`- No installation required
 
 
 
-### Detailed Mode (Default) 📚- Works on Windows 10/11
+- Username-based authentication
 
-✅ Comprehensive explanations with examples  
+- No local data storage
 
-✅ Perfect for learning concepts deeply  2. **Run SRMV.exe**:
+- Session reset on app restart### Detailed Mode (Default) 📚- Works on Windows 10/11
 
-✅ Includes code when requested  
+- Screen capture protection enabled
 
-✅ Detailed step-by-step breakdowns     - Double-click `SRMV.exe` in this folder---
+- HTTPS/WSS secure connection✅ Comprehensive explanations with examples  
 
 
+
+---✅ Perfect for learning concepts deeply  2. **Run SRMV.exe**:
+
+
+
+## 📋 Requirements✅ Includes code when requested  
+
+
+
+- **OS**: Windows 10 or later (x64)✅ Detailed step-by-step breakdowns     - Double-click `SRMV.exe` in this folder---
+
+- **.NET Runtime**: 8.0 (self-contained, included)
+
+- **Internet**: Required for cloud API access
+
+- **Disk Space**: ~150 MB
 
 ### Simple Mode 💡   - Wait for "✅ Connected - Ready to chat!" message
 
+---
+
 ✅ Short, clear definitions  
+
+## 📖 Documentation
 
 ✅ Numbered steps     - Start asking questions!## 🚀 How to Use
 
-✅ Quick answers for fast learning  
+- **Full Release Notes**: `RELEASE_NOTES_v2.2.0_PRODUCTION.md`
+
+- **Session Validation**: See main repo documentation✅ Quick answers for fast learning  
+
+- **GitHub**: https://github.com/vijay5b3/ChatBotNew
 
 ✅ Beginner-friendly language  
 
+---
 
+
+
+## 🆘 Troubleshooting
 
 **Toggle with F3 key!**### ⌨️ Keyboard Shortcuts1. **Double-click** `SRMV.exe` to run
 
+**Can't connect?**
+
+- Check internet connection
+
+- Verify username format (alphanumeric, 3-20 chars)
+
+- Wait a few seconds - auto-reconnect is enabled---- **F2**: Toggle transparency (0.6 opacity ↔ 1.0 opacity)2. Window appears as always-on-top overlay
 
 
----- **F2**: Toggle transparency (0.6 opacity ↔ 1.0 opacity)2. Window appears as always-on-top overlay
+
+**Connection lost?**
+
+- App auto-reconnects every 1 second
+
+- Just wait for "Connected" message## 💬 Example Questions- **F3**: Toggle between Detailed Mode and Simple Mode3. **Automatically connects** to production server
 
 
 
-## 💬 Example Questions- **F3**: Toggle between Detailed Mode and Simple Mode3. **Automatically connects** to production server
+**Want to change username?**
+
+- Close and reopen SRMV.exe
+
+- Enter new username when prompted### For Explanations:- **Enter**: Send message4. Type questions in the text box at bottom
 
 
 
-### For Explanations:- **Enter**: Send message4. Type questions in the text box at bottom
+---- "What is binary search?"
 
-- "What is binary search?"
 
-- "Explain how quicksort works"- **Shift+Enter**: New line in input5. Press **Enter** or click **Send**
 
-- "Tell me about REST APIs"
+**Version:** 2.2.0 Production  - "Explain how quicksort works"- **Shift+Enter**: New line in input5. Press **Enter** or click **Send**
+
+**Build Date:** October 19, 2025  
+
+**Backend:** Vercel Production Server  - "Tell me about REST APIs"
+
+**Status:** ✅ Ready for Production Use
 
 - "How does dynamic programming work?"6. Responses appear instantly
 

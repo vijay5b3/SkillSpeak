@@ -141,9 +141,9 @@ def function_name(params):
         // Load or prompt for client ID
         _clientId = LoadOrPromptForClientId();
         
-        // Set URLs with clientId - Production Vercel URLs
-        _serverUrl = $"https://chat-bot-final-b1uz.vercel.app/events?clientId={Uri.EscapeDataString(_clientId)}&source=windows";
-        _chatApiUrl = $"https://chat-bot-final-b1uz.vercel.app/api/chat?clientId={Uri.EscapeDataString(_clientId)}";
+        // Set URLs with clientId - LOCAL DEVELOPMENT URLs
+        _serverUrl = $"http://localhost:3000/events?clientId={Uri.EscapeDataString(_clientId)}&source=windows";
+        _chatApiUrl = $"http://localhost:3000/api/chat?clientId={Uri.EscapeDataString(_clientId)}";
         
         _httpClient = new HttpClient();
         _httpClient.Timeout = TimeSpan.FromMilliseconds(Timeout.Infinite);

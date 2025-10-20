@@ -466,13 +466,18 @@ Return a JSON object with this structure:
     "skillGaps": ["gap1", "gap2"]
   },
   "questions": {
-    "basic": [{"question": "text", "reasoning": "why", "focusArea": "topic"}],
-    "advanced": [{"question": "text", "reasoning": "why", "focusArea": "topic"}],
-    "scenario": [{"question": "text", "reasoning": "why", "focusArea": "topic"}]
+    "basic": [{"question": "text", "reasoning": "why", "focusArea": "topic", "difficulty": 2}],
+    "advanced": [{"question": "text", "reasoning": "why", "focusArea": "topic", "difficulty": 4}],
+    "scenario": [{"question": "text", "reasoning": "why", "focusArea": "topic", "difficulty": 5}]
   }
 }
 
-Generate 5-7 questions per category. Questions must be specific to the resume/job. Return ONLY valid JSON.`;
+IMPORTANT: Generate EXACTLY 20 questions for each category (basic, advanced, scenario). Total 60 questions.
+- Basic: 20 fundamental questions (difficulty: 2)
+- Advanced: 20 in-depth technical questions (difficulty: 4)  
+- Scenario: 20 real-world problem-solving questions (difficulty: 5)
+
+Questions must be specific to the candidate's resume and job requirements. Return ONLY valid JSON.`;
 
   const userPrompt = `RESUME:\n${resumeText.substring(0, 2000)}\n\nJOB DESCRIPTION:\n${jobDescriptionText.substring(0, 1500)}\n\nGenerate interview questions as JSON.`;
 
@@ -490,7 +495,7 @@ Generate 5-7 questions per category. Questions must be specific to the resume/jo
           { role: 'system', content: systemPrompt },
           { role: 'user', content: userPrompt }
         ],
-        max_tokens: 4000,
+        max_tokens: 8000,
         temperature: 0.7,
         top_p: 0.95
       },
@@ -902,6 +907,443 @@ app.get('/api/rating-sessions', (req, res) => {
   } catch (error) {
     console.error('Error fetching sessions:', error);
     res.status(500).json({ error: 'Failed to fetch sessions' });
+  }
+});
+
+// ============================================
+// RESUME-AWARE CHAT ASSISTANT (PRO FEATURE)
+// ============================================
+
+// In-memory storage for parsed resume data
+const resumeDataStore = new Map();
+
+// Parse resume to extract key parameters
+async function parseResumeData(resumeText) {
+  try {
+    const systemPrompt = `You are an AI that extracts structured information from resumes.
+Analyze the resume and extract key parameters in JSON format.
+
+Return a JSON object with this structure:
+{
+  "experience": {
+    "totalYears": number,
+    "currentRole": "string",
+    "previousRoles": ["role1", "role2"]
+  },
+  "technologies": {
+    "languages": ["language1", "language2"],
+    "frameworks": ["framework1", "framework2"],
+    "tools": ["tool1", "tool2"],
+    "cloud": ["cloud1", "cloud2"]
+  },
+  "education": {
+    "degrees": ["degree1"],
+    "certifications": ["cert1", "cert2"]
+  },
+  "projects": [
+    {
+      "name": "project name",
+      "description": "brief description",
+      "technologies": ["tech1", "tech2"]
+    }
+  ],
+  "domain": ["domain1", "domain2"],
+  "keyAchievements": ["achievement1", "achievement2"]
+}
+
+Extract all available information. Return ONLY valid JSON.`;
+
+    const userPrompt = `RESUME:\n${resumeText.substring(0, 3000)}\n\nExtract resume data as JSON.`;
+
+    const response = await axios.post(
+      `${OPENROUTER_BASE_URL}/chat/completions`,
+      {
+        model: OPENROUTER_MODEL,
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userPrompt }
+        ],
+        max_tokens: 2000,
+        temperature: 0.3
+      },
+      {
+        headers: {
+          'Authorization': `Bearer ${OPENROUTER_API_KEY}`,
+          'Content-Type': 'application/json',
+          'HTTP-Referer': 'http://localhost:3000',
+          'X-Title': 'SkillSpeak Resume Parser'
+        },
+        timeout: 30000
+      }
+    );
+
+    const content = response.data.choices[0].message.content;
+    
+    console.log('=== Resume Parser Response ===');
+    console.log('First 500 chars:', content.substring(0, 500));
+    console.log('Last 200 chars:', content.substring(content.length - 200));
+    console.log('==============================');
+    
+    // Try to parse JSON
+    try {
+      return JSON.parse(content);
+    } catch (e) {
+      console.log('Direct JSON parse failed, trying markdown extraction...');
+      
+      // Try to extract from markdown
+      const jsonMatch = content.match(/```json\s*([\s\S]*?)\s*```/) || content.match(/```\s*([\s\S]*?)\s*```/);
+      if (jsonMatch) {
+        console.log('Found JSON in code block');
+        try {
+          return JSON.parse(jsonMatch[1]);
+        } catch (parseError) {
+          console.error('Failed to parse extracted JSON:', parseError);
+          console.error('Extracted content:', jsonMatch[1].substring(0, 500));
+        }
+      }
+      
+      // If all parsing fails, return a default structure
+      console.error('=== FULL RESUME PARSER RESPONSE (Failed to parse) ===');
+      console.error(content);
+      console.error('=====================================================');
+      
+      // Return minimal structure based on text analysis
+      return {
+        experience: {
+          totalYears: "Unknown",
+          currentRole: "Not specified",
+          previousRoles: []
+        },
+        technologies: {
+          languages: [],
+          frameworks: [],
+          tools: [],
+          cloud: []
+        },
+        education: {
+          degrees: [],
+          certifications: []
+        },
+        projects: [],
+        domain: [],
+        keyAchievements: []
+      };
+    }
+  } catch (error) {
+    console.error('Error in parseResumeData:', error);
+    throw error;
+  }
+}
+
+// Endpoint: Parse and store resume data
+app.post('/api/parse-resume', 
+  upload.fields([{ name: 'resume', maxCount: 1 }]),
+  async (req, res) => {
+    try {
+      if (!req.files || !req.files['resume']) {
+        return res.status(400).json({ error: 'Resume file is required' });
+      }
+
+      const resumeFile = req.files['resume'][0];
+      console.log('Parsing resume:', resumeFile.originalname);
+
+      // Extract text from resume
+      const resumeText = await extractTextFromFile(resumeFile);
+      
+      if (!resumeText || resumeText.trim().length < 50) {
+        return res.status(400).json({ error: 'Resume file appears to be empty or too short' });
+      }
+
+      // Parse resume data using AI
+      const resumeData = await parseResumeData(resumeText);
+      
+      // Generate unique session ID
+      const sessionId = `resume_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+      
+      // Store resume data with full text
+      resumeDataStore.set(sessionId, {
+        data: resumeData,
+        fullText: resumeText,
+        timestamp: new Date()
+      });
+
+      console.log('Resume parsed successfully, session:', sessionId);
+      
+      res.json({
+        success: true,
+        sessionId,
+        resumeData,
+        summary: {
+          experience: resumeData.experience?.totalYears || 'Not specified',
+          role: resumeData.experience?.currentRole || 'Not specified',
+          technologies: [
+            ...(resumeData.technologies?.languages || []),
+            ...(resumeData.technologies?.frameworks || [])
+          ].slice(0, 5)
+        }
+      });
+
+    } catch (error) {
+      console.error('Error parsing resume:', error);
+      res.status(500).json({ error: 'Failed to parse resume' });
+    }
+  }
+);
+
+// Endpoint: Parse resume text (pasted)
+app.post('/api/parse-resume-text', async (req, res) => {
+  try {
+    const { resumeText } = req.body;
+
+    if (!resumeText || typeof resumeText !== 'string') {
+      return res.status(400).json({ error: 'Resume text is required' });
+    }
+
+    if (resumeText.trim().length < 100) {
+      return res.status(400).json({ error: 'Resume text is too short. Please provide more details.' });
+    }
+
+    console.log('Parsing resume text, length:', resumeText.length);
+
+    // Parse resume data using AI with the provided text
+    const resumeData = await parseResumeData(resumeText);
+    
+    // Generate unique session ID
+    const sessionId = `resume_text_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    
+    // Store resume data with full text
+    resumeDataStore.set(sessionId, {
+      data: resumeData,
+      fullText: resumeText,
+      timestamp: new Date(),
+      source: 'text' // Mark as text input for reference
+    });
+
+    console.log('Resume text parsed successfully, session:', sessionId);
+    
+    res.json({
+      success: true,
+      sessionId,
+      resumeData,
+      summary: {
+        experience: resumeData.experience?.totalYears || 'Not specified',
+        role: resumeData.experience?.currentRole || 'Not specified',
+        technologies: [
+          ...(resumeData.technologies?.languages || []),
+          ...(resumeData.technologies?.frameworks || [])
+        ].slice(0, 5)
+      }
+    });
+
+  } catch (error) {
+    console.error('Error parsing resume text:', error);
+    res.status(500).json({ error: 'Failed to parse resume text' });
+  }
+});
+
+// Endpoint: Resume-aware chat (Pro feature)
+app.post('/api/chat-with-resume', async (req, res) => {
+  try {
+    const { message, sessionId, mode } = req.body;
+
+    if (!message) {
+      return res.status(400).json({ error: 'Message is required' });
+    }
+
+    if (!sessionId || !resumeDataStore.has(sessionId)) {
+      return res.status(400).json({ error: 'Invalid or expired resume session' });
+    }
+
+    // Extract clientId for Windows app sync
+    const clientId = req.query.clientId || req.headers['x-client-id'];
+
+    const resumeSession = resumeDataStore.get(sessionId);
+    const resumeData = resumeSession.data;
+    const fullResumeText = resumeSession.fullText || '';
+
+    // Broadcast user message to Windows app
+    if (clientId) {
+      broadcastEvent({ 
+        role: 'user', 
+        type: 'user', 
+        content: message 
+      }, clientId);
+    }
+
+    // Build context-aware system prompt with full resume context
+    const systemPrompt = `You are a helpful interview coach assistant. You're helping a candidate prepare for interviews by answering questions based on their actual resume and experience.
+
+CANDIDATE PROFILE:
+- Experience: ${resumeData.experience?.totalYears || 'Not specified'} years
+- Current Role: ${resumeData.experience?.currentRole || 'Not specified'}
+- Key Technologies: ${[
+  ...(resumeData.technologies?.languages || []),
+  ...(resumeData.technologies?.frameworks || []),
+  ...(resumeData.technologies?.tools || [])
+].slice(0, 10).join(', ')}
+- Domain Experience: ${(resumeData.domain || []).join(', ')}
+- Education: ${(resumeData.education?.degrees || []).join(', ')}
+- Certifications: ${(resumeData.education?.certifications || []).join(', ')}
+
+KEY PROJECTS:
+${(resumeData.projects || []).slice(0, 3).map(p => 
+  `- ${p.name}: ${p.description} (${(p.technologies || []).join(', ')})`
+).join('\n')}
+
+FULL RESUME CONTEXT (for detailed reference):
+${fullResumeText.substring(0, 2000)}${fullResumeText.length > 2000 ? '...' : ''}
+
+INSTRUCTIONS:
+When answering interview questions:
+1. Base answers on the candidate's ACTUAL experience and skills from their resume
+2. Reference specific projects, technologies, or achievements they have
+3. Use details from the full resume text to provide accurate, personalized answers
+4. Keep answers simple, clear, and conversational - like a real human would speak in an interview
+5. Avoid jargon or overly technical language unless the question specifically asks for it
+6. Make answers sound natural and confident, not scripted or robotic
+7. Keep responses concise (3-5 sentences unless more detail is requested)
+8. If the candidate doesn't have direct experience with something, suggest how they could relate their existing experience to it
+9. When discussing projects or achievements, use specific details from the resume
+
+Answer style: ${mode === 'detailed' ? 'Provide comprehensive, in-depth answers with examples from their resume' : 'Give brief, clear answers suitable for interview responses'}`;
+
+    // Enable streaming response
+    const response = await axios.post(
+      `${OPENROUTER_BASE_URL}/chat/completions`,
+      {
+        model: OPENROUTER_MODEL,
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: message }
+        ],
+        max_tokens: mode === 'detailed' ? 1000 : 500,
+        temperature: 0.7,
+        top_p: 0.95,
+        stream: true
+      },
+      {
+        headers: {
+          'Authorization': `Bearer ${OPENROUTER_API_KEY}`,
+          'Content-Type': 'application/json',
+          'HTTP-Referer': 'http://localhost:3000',
+          'X-Title': 'SkillSpeak Resume-Aware Chat'
+        },
+        responseType: 'stream',
+        timeout: 30000
+      }
+    );
+
+    // Set headers for SSE streaming to browser
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+
+    let fullAnswer = '';
+
+    response.data.on('data', (chunk) => {
+      const lines = chunk.toString().split('\n').filter(line => line.trim() !== '');
+      
+      for (const line of lines) {
+        if (line.startsWith('data: ')) {
+          const data = line.slice(6);
+          
+          if (data === '[DONE]') {
+            // Send complete message to Windows app
+            if (clientId) {
+              broadcastEvent({ 
+                role: 'assistant',
+                type: 'complete',
+                content: fullAnswer,
+                isStreaming: false
+              }, clientId);
+            }
+            
+            // Send final event to browser
+            res.write(`data: ${JSON.stringify({ 
+              type: 'complete', 
+              content: fullAnswer,
+              basedOn: {
+                experience: resumeData.experience?.totalYears,
+                role: resumeData.experience?.currentRole,
+                technologies: [
+                  ...(resumeData.technologies?.languages || []),
+                  ...(resumeData.technologies?.frameworks || [])
+                ].slice(0, 5)
+              }
+            })}\n\n`);
+            res.end();
+            return;
+          }
+          
+          try {
+            const parsed = JSON.parse(data);
+            const content = parsed.choices?.[0]?.delta?.content;
+            
+            if (content) {
+              fullAnswer += content;
+              
+              // Send chunk to browser
+              res.write(`data: ${JSON.stringify({ 
+                type: 'chunk', 
+                content: content 
+              })}\n\n`);
+              
+              // Broadcast chunk to Windows app
+              if (clientId) {
+                broadcastEvent({ 
+                  role: 'assistant',
+                  type: 'chunk',
+                  content: content,
+                  isStreaming: true
+                }, clientId);
+              }
+            }
+          } catch (e) {
+            // Skip invalid JSON
+          }
+        }
+      }
+    });
+
+    response.data.on('end', () => {
+      if (!res.writableEnded) {
+        // Send complete message to Windows app if not already sent
+        if (clientId) {
+          broadcastEvent({ 
+            role: 'assistant',
+            type: 'complete',
+            content: fullAnswer,
+            isStreaming: false
+          }, clientId);
+        }
+        
+        res.write(`data: ${JSON.stringify({ 
+          type: 'complete', 
+          content: fullAnswer,
+          basedOn: {
+            experience: resumeData.experience?.totalYears,
+            role: resumeData.experience?.currentRole,
+            technologies: [
+              ...(resumeData.technologies?.languages || []),
+              ...(resumeData.technologies?.frameworks || [])
+            ].slice(0, 5)
+          }
+        })}\n\n`);
+        res.end();
+      }
+    });
+
+    response.data.on('error', (error) => {
+      console.error('Stream error:', error);
+      if (!res.writableEnded) {
+        res.write(`data: ${JSON.stringify({ type: 'error', message: 'Stream error' })}\n\n`);
+        res.end();
+      }
+    });
+
+  } catch (error) {
+    console.error('Error in resume-aware chat:', error);
+    res.status(500).json({ error: 'Failed to generate response' });
   }
 });
 
